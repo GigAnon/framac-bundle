@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Frama-C
+Comment=Frama-C with Why3, Z3, CVC4 (offline, relocatable bundle)
+Exec=frama-c
+Icon=frama-c
+Terminal=true
+Categories=Development;

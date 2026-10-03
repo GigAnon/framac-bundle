@@ -1,0 +1,6 @@
+# build outputs and work trees
+/dist/
+/_work/
+/_mock/
+*.AppImage
+fcai-test-report-*.txt

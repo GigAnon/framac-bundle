@@ -1,0 +1,11 @@
+#!/bin/bash
+case "$*" in
+  "config detect") { echo '[main]'; echo 'magic = 14'; echo 'datadir = "/should/be/removed"';
+     for p in alt-ergo z3 cvc4 cvc5; do b=$(command -v $p) || continue
+       case $p in z3) n=Z3;; cvc4) n=CVC4;; cvc5) n=CVC5;; alt-ergo) n=Alt-Ergo;; esac
+       printf '\n[partial_prover]\nname = "%s"\npath = "%s"\nversion = "x"\n' $n "$b"; done; } > "$WHY3CONFIG";;
+  "config list-provers") grep name "$WHY3CONFIG";;
+  "--print-libdir") echo "@WHY3LIB@";;
+  "--print-datadir") echo "@WHY3DATA@";;
+  "--version") echo "Why3 platform, version 1.8.2";;
+esac

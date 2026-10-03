@@ -1,0 +1,6 @@
+#!/bin/sh
+# 'frama-c' as found on PATH by processes started inside the bundle (Ivette
+# in particular): runs the bundled frama-c through AppRun, i.e. with the
+# bundle environment and -no-autoload-plugins.
+if [ -n "${FCAI_TRACE_FILE:-}" ]; then echo "$$ frama-c $*" >> "$FCAI_TRACE_FILE"; fi
+exec "${FCAI_ROOT:?frama-c wrapper: not started through the bundle AppRun}/AppRun" frama-c "$@"

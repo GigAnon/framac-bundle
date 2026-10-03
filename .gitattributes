@@ -1,0 +1,3 @@
+*.sh text eol=lf
+appdir/AppRun text eol=lf
+appdir/fcai-wrappers/* text eol=lf

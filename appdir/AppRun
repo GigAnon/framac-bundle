@@ -1,0 +1,184 @@
+#!/bin/sh
+# AppRun -- multi-call entry point of the relocatable Frama-C bundle.
+#
+# Works identically as the AppImage entry point (mounted at a random
+# /tmp/.mount_XXXXXX) and from an extracted / copied directory anywhere.
+# Nothing here depends on the location the bundle was built at.
+#
+# Command selection:
+#   * name it was invoked under (symlink name, or $ARGV0 for an AppImage):
+#       frama-c, ivette, z3, cvc4, cvc5, alt-ergo
+#   * otherwise, if the first argument is one of those names, it is used;
+#   * otherwise, with no argument at all and no terminal, ivette;
+#   * otherwise the command is frama-c and all arguments are passed to it.
+# Bundle-specific options (first argument):
+#   --fcai-help           this help
+#   --fcai-info           build information (versions, glibc floor, ...)
+#   --fcai-env            print the environment frama-c is run with
+#   --fcai-run CMD ARGS   run CMD inside the bundle environment (for tests)
+#
+# Environment knobs:
+#   FCAI_HOST_CPP=1       use the host's gcc for preprocessing instead of the
+#                         bundled one
+#   FCAI_WHY3CONFIG=FILE  use this why3.conf instead of the generated one
+#   FCAI_IVETTE_SANDBOX=0|1  force Chromium's sandbox off/on for Ivette
+#                         (default: on only if user namespaces are usable)
+#   FCAI_DEBUG=1          trace this script
+set -e
+[ -n "${FCAI_DEBUG:-}" ] && set -x
+
+SELF=$(readlink -f -- "$0")
+HERE=${SELF%/*}
+
+# Name we were invoked under. For an AppImage, the runtime exports ARGV0
+# (the symlink / file name the user ran) and APPDIR (== HERE).  ARGV0 is
+# consumed here and removed from the environment, so that processes started
+# from inside the bundle (e.g. Ivette running frama-c through AppRun) do not
+# inherit it.
+if [ -n "${APPIMAGE:-}" ] && [ -n "${ARGV0:-}" ] &&
+   [ "$(readlink -f -- "${APPDIR:-/nonexistent}" 2>/dev/null || true)" = "$HERE" ]; then
+    CMD=${ARGV0##*/}
+else
+    CMD=${0##*/}
+fi
+unset ARGV0
+
+IVETTE_DIR="$HERE/usr/lib/ivette"
+
+is_cmd() {
+    case "$1" in
+        frama-c|z3|cvc4|cvc5|alt-ergo) [ -x "$HERE/usr/bin/$1" ] ;;
+        ivette) [ -f "$IVETTE_DIR/.fcai-exe" ] ;;
+        *) return 1 ;;
+    esac
+}
+
+usage() {
+    sed -n '2,/^set -e/p' "$SELF" | sed -e '$d' -e 's/^# \{0,1\}//'
+    echo "Bundled commands:"
+    for c in frama-c ivette z3 cvc4 cvc5 alt-ergo; do
+        is_cmd "$c" && echo "  $c"
+    done
+    return 0
+}
+
+setup_env() {
+    export FCAI_ROOT="$HERE"
+    esc=$(printf '%s' "$HERE" | sed 's/[&|\\]/\\&/g')
+    # --- Why3 (linked into frama-c as a library) ------------------------
+    export WHY3DATA="$HERE/usr/share/why3"
+    export WHY3LIB="$HERE/usr/lib/why3"
+    if [ -n "${FCAI_WHY3CONFIG:-}" ]; then
+        export WHY3CONFIG="$FCAI_WHY3CONFIG"
+    else
+        export WHY3CONFIG
+        WHY3CONFIG=$(make_why3_conf)
+    fi
+    # --- dune-site locations: never inherit them from the caller ---------
+    unset DUNE_DIR_LOCATIONS OCAMLPATH
+    if [ -f "$HERE/usr/share/fcai/dune-dir-locations" ]; then
+        DUNE_DIR_LOCATIONS=$(sed "s|@APPDIR@|$esc|g" "$HERE/usr/share/fcai/dune-dir-locations")
+        export DUNE_DIR_LOCATIONS
+    fi
+    # --- PATH: 'frama-c' wrapper (for Ivette & co), bundled preprocessor,
+    #     then bundled provers --------------------------------------------
+    unset GCC_EXEC_PREFIX COMPILER_PATH
+    if [ -n "${FCAI_HOST_CPP:-}" ]; then
+        PATH="$HERE/usr/lib/fcai-wrappers:$HERE/usr/bin:$PATH"
+    else
+        PATH="$HERE/usr/lib/fcai-wrappers:$HERE/usr/lib/fcai-cpp/bin:$HERE/usr/bin:$PATH"
+    fi
+    export PATH
+}
+
+# Instantiate the why3.conf template for the current location of the bundle.
+# One file per bundle location (AppImage mounts get a new path on every run),
+# written atomically.
+make_why3_conf() {
+    base=${XDG_RUNTIME_DIR:-}
+    if [ -z "$base" ] || [ ! -d "$base" ] || [ ! -w "$base" ]; then
+        base=${TMPDIR:-/tmp}
+    fi
+    dir="$base/fcai-$(id -u)"
+    mkdir -p "$dir" && chmod 700 "$dir"
+    key=$(printf '%s' "$HERE" | cksum | cut -d' ' -f1)
+    conf="$dir/why3-$key.conf"
+    if [ ! -s "$conf" ] || [ "$(sed -n 1p "$conf")" != "# fcai-root: $HERE" ]; then
+        tmp=$(mktemp "$dir/.why3.XXXXXX")
+        {
+            echo "# fcai-root: $HERE"
+            sed "s|@APPDIR@|$esc|g" "$HERE/usr/share/fcai/why3.conf.in"
+        } > "$tmp"
+        mv -f "$tmp" "$conf"
+    fi
+    # garbage-collect files of AppImage mounts that are gone (a new mount
+    # point is used on every run); files of extracted copies are kept
+    for f in "$dir"/why3-*.conf; do
+        [ -f "$f" ] || continue
+        root=$(sed -n '1s/^# fcai-root: //p' "$f")
+        case "$root" in
+            */.mount_*) [ -d "$root" ] || rm -f "$f" ;;
+        esac
+    done
+    printf '%s\n' "$conf"
+}
+
+# Chromium needs either unprivileged user namespaces or a setuid-root
+# chrome-sandbox (impossible inside an AppImage / a user-owned directory).
+ivette_sandbox_flag() {
+    case "${FCAI_IVETTE_SANDBOX:-auto}" in
+        1|on|yes) return 0 ;;
+        0|off|no) echo "--no-sandbox"; return 0 ;;
+    esac
+    # Chromium refuses to run as root with its sandbox
+    if [ "$(id -u)" = 0 ]; then echo "--no-sandbox"; return 0; fi
+    if command -v unshare >/dev/null 2>&1 && unshare -Ur true >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "--no-sandbox"
+}
+
+# bundle options are recognised whatever the command name (no tool uses them)
+case "${1:-}" in
+    --fcai-*) CMD=AppRun ;;
+esac
+if ! is_cmd "$CMD"; then
+    case "${1:-}" in
+        --fcai-help) usage; exit 0 ;;
+        --fcai-info) cat "$HERE/usr/share/fcai/build-info"; exit 0 ;;
+        --fcai-env)
+            setup_env
+            env | grep -E '^(FCAI_ROOT|WHY3|DUNE_DIR_LOCATIONS|PATH=)' | sort
+            exit 0 ;;
+        --fcai-run)
+            shift
+            setup_env
+            exec "$@" ;;
+        --fcai-*) echo "unknown option $1 (try --fcai-help)" >&2; exit 2 ;;
+    esac
+    if [ -n "${1:-}" ] && is_cmd "$1"; then
+        CMD=$1
+        shift
+    elif [ $# -eq 0 ] && [ ! -t 0 ] && is_cmd ivette; then
+        CMD=ivette      # e.g. AppImage double-clicked in a file manager
+    else
+        CMD=frama-c
+    fi
+fi
+
+case "$CMD" in
+    frama-c)
+        setup_env
+        # plug-ins are linked in statically: never scan for dynamic ones
+        exec "$HERE/usr/bin/frama-c" -no-autoload-plugins "$@" ;;
+    ivette)
+        setup_env
+        exe=$(cat "$IVETTE_DIR/.fcai-exe")
+        flag=$(ivette_sandbox_flag)
+        # Ivette starts 'frama-c' from PATH: the first one is
+        # usr/lib/fcai-wrappers/frama-c, i.e. this AppRun.
+        # shellcheck disable=SC2086
+        exec "$IVETTE_DIR/$exe" $flag "$@" ;;
+    *)
+        exec "$HERE/usr/bin/$CMD" "$@" ;;
+esac

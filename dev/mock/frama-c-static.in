@@ -1,0 +1,37 @@
+#!/bin/bash
+# MOCK frama-c: emulates just enough behaviour to exercise the bundle plumbing
+exe=$(readlink -f "$0"); prefix=$(dirname "$(dirname "$exe")")
+baked="$prefix/@STAGE@/share/frama-c/share"; share="$baked"   # like the relocatable install
+IFS=: read -ra L <<< "${DUNE_DIR_LOCATIONS:-}"
+for ((j=0;j+2<${#L[@]};j+=3)); do [ "${L[$j]}:${L[$j+1]}" = "frama-c:share" ] && { share="${L[$j+2]}/share"; break; }; done
+[ -d "$share/machdeps" ] || { case " $* " in *" -version "*|*" -plugins "*|*" -print-share-path "*) ;; *) echo "[kernel] User Error: Could not find directory machdeps in Frama-C share"; exit 1;; esac; }
+args=("$@"); prover=alt-ergo; files=(); mode=""
+for ((i=0;i<${#args[@]};i++)); do a=${args[$i]}
+  case "$a" in
+    -server-socket) echo "[server] listening"; sleep 120; exit 0;;
+    -version) echo "33.0 (Arsenic) [MOCK]"; exit 0;;
+    -print-share-path) echo "$share"; echo "$baked"; exit 0;;
+    -plugins) printf 'Eva\nRteGen\nWP\n'; exit 0;;
+    -wp-detect) grep -A3 partial_prover "$WHY3CONFIG" | sed -n 's/name = "\(.*\)"/[wp] Prover \1/p'; exit 0;;
+    -wp) mode=wp;; -eva) mode=eva;;
+    -wp-prover) i=$((i+1)); prover=${args[$i]};;
+    -wp-timeout|-wp-par) i=$((i+1));;
+    -then|-print) ;;
+    -no-autoload-plugins|-wp-rte) ;;
+    *.c) files+=("$a");;
+  esac
+done
+for f in "${files[@]}"; do gcc -C -E -I. -nostdinc -undef -dD -I"$baked/libc" "$f" -o /dev/null || { echo "[kernel] User Error: preprocessing failed"; exit 1; }; done
+if [ "$mode" = wp ]; then
+  IFS=, read -ra ps <<< "$prover"
+  for p in "${ps[@]}"; do
+    path=$(grep -B0 -A2 "name = " "$WHY3CONFIG" | tr -d '\n' ); bin=$(command -v "$p") || { echo "prover $p not found"; exit 1; }
+    "$bin" --version >/dev/null 2>&1 || { echo "prover $p failed"; exit 1; }
+    [ -x "$WHY3LIB/why3server" ] || { echo "anomaly: why3server missing"; echo "[wp] Proved goals:    1 / 12"; continue; }
+    case "$p" in z3) l=Z3;; cvc4) l=CVC4;; cvc5) l=CVC5;; alt-ergo) l=Alt-Ergo;; esac
+    if grep -q wrong "${files[0]}"; then echo "[wp] Proved goals:    1 / 2"; else echo "[wp] Proved goals:   12 / 12"; fi
+    echo "  $l 1.0: 5 (10ms)"
+  done
+fi
+[ "$mode" = eva ] && grep -q '/ d' "${files[-1]}" && echo "[eva:alarm] eva.c:21: Warning: division by zero. assert d != 0;"
+exit 0
