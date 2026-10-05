@@ -7,8 +7,10 @@
 #
 # Environment:
 #   ENGINE=docker|podman        (default: whichever is found)
-#   BASE_IMAGE=ubuntu:22.04     glibc of the image = minimum glibc on targets
-#                               (22.04 -> glibc 2.35; ubuntu:20.04 -> 2.31)
+#   BASE_IMAGE=ubuntu:20.04     glibc of the image = minimum glibc on targets
+#                               (20.04 -> glibc 2.31: RHEL 9 (2.34), Debian 11+,
+#                               Ubuntu 20.04+; 22.04 -> 2.35 is too new for
+#                               RHEL 9).  build.sh enforces GLIBC_MAX (2.34).
 #   FCAI_VOLUME=fcai-build      named volume keeping the opam root / sources
 #                               between runs (incremental rebuilds); remove it
 #                               with: docker volume rm fcai-build
@@ -20,14 +22,14 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 ENGINE=${ENGINE:-$(command -v docker || command -v podman || true)}
 [ -n "$ENGINE" ] || { echo "neither docker nor podman found" >&2; exit 1; }
-BASE_IMAGE=${BASE_IMAGE:-ubuntu:22.04}
+BASE_IMAGE=${BASE_IMAGE:-ubuntu:20.04}
 VOLUME=${FCAI_VOLUME:-fcai-build-${BASE_IMAGE//[:\/]/-}}
 mkdir -p "$HERE/dist"
 
 PASS=()
 for v in FRAMAC_VERSION OCAML_VERSION OCAML_FLAMBDA ALTERGO_PKG WITH_CVC5 EXCLUDE_PLUGINS \
          Z3_VERSION Z3_URL Z3_SHA256 CVC4_URL CVC4_SHA256 CVC5_URL CVC5_SHA256 \
-         OPAM_VERSION OPAM_SHA256 OPAM_REPO JOBS SKIP_SELFTEST FORCE WITH_IVETTE NODE_VERSION KEEP_LOGS; do
+         OPAM_VERSION OPAM_SHA256 OPAM_REPO JOBS SKIP_SELFTEST FORCE WITH_IVETTE NODE_VERSION KEEP_LOGS GLIBC_MAX; do
     if [ -n "${!v+x}" ]; then PASS+=(-e "$v=${!v}"); fi
 done
 # a prebuilt Ivette (AppImage or unpacked directory) on the host is mounted in

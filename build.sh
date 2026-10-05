@@ -23,6 +23,8 @@
 #   EXCLUDE_PLUGINS=e-acsl,e_acsl
 #   BUILD_ROOT=...  OUT_DIR=...  JOBS=N  SKIP_SELFTEST=1  FORCE=step1,step2
 #   KEEP_LOGS=1 (old logs are deleted at the start of each build otherwise)
+#   GLIBC_MAX=2.34  the build fails if any bundled ELF needs a newer glibc
+#                   (2.34 = RHEL 9; the default image ubuntu:20.04 gives 2.31)
 set -Eeuo pipefail
 
 SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
@@ -60,6 +62,12 @@ SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 : "${APPIMAGETOOL_SHA256:=46fdd785094c7f6e545b61afcfb0f3d98d8eab243f644b4b17698c01d06083d1}"
 : "${RUNTIME_URL:=https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64}"
 : "${RUNTIME_SHA256:=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d}"
+# patchelf: the distro one is too old on ubuntu:20.04 (0.10, buggy RUNPATH
+# rewriting); this static build is used by bundle_libs.py
+: "${PATCHELF_URL:=https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-x86_64.tar.gz}"
+: "${PATCHELF_SHA256:=ce84f2447fb7a8679e58bc54a20dc2b01b37b5802e12c57eece772a6f14bf3f0}"
+# newest glibc the bundle may require (targets: RHEL 9 = 2.34)
+: "${GLIBC_MAX:=2.34}"
 
 if [ -f /.dockerenv ] || [ -n "${FCAI_IN_CONTAINER:-}" ]; then
     : "${BUILD_ROOT:=/fcai-build}"
@@ -332,7 +340,12 @@ cp /usr/share/doc/gcc*/copyright "$APPDIR/usr/share/fcai/licenses/gcc/" 2>/dev/n
 
 # shared libraries + relative RUNPATHs
 say "bundle shared libraries"
-python3 "$SRC_DIR/lib/bundle_libs.py" "$APPDIR"
+if [ ! -x "$BUILD_ROOT/tools/patchelf/bin/patchelf" ]; then
+    fetch "$PATCHELF_URL" "$PATCHELF_SHA256" "$DL/patchelf.tar.gz"
+    rm -rf "$BUILD_ROOT/tools/patchelf"; mkdir -p "$BUILD_ROOT/tools/patchelf"
+    tar xzf "$DL/patchelf.tar.gz" -C "$BUILD_ROOT/tools/patchelf"
+fi
+python3 "$SRC_DIR/lib/bundle_libs.py" "$APPDIR" --patchelf "$BUILD_ROOT/tools/patchelf/bin/patchelf"
 
 # `dune install --relocatable` baked the dune-site locations into frama-c as
 # <exe>/../ + <absolute stage path>, i.e. usr/$STAGE/share/... .  Parts of
@@ -541,6 +554,16 @@ ver() { "$APPDIR/usr/bin/$1" --version 2>&1 | head -n1; }
     echo "BUILD_ROOTS=$BUILD_ROOT $OPAMROOT"
 } > "$APPDIR/usr/share/fcai/build-info"
 cat "$APPDIR/usr/share/fcai/build-info"
+# fail now rather than on the target with "GLIBC_x.y not found"
+glibc_too_new() { [ -n "$1" ] && [ "$(printf '%s\n%s\n' "$1" "$GLIBC_MAX" | sort -V | tail -n1)" != "$GLIBC_MAX" ]; }
+for key in GLIBC_REQUIRED GLIBC_REQUIRED_IVETTE; do
+    need=$(sed -n "s/^$key=//p" "$APPDIR/usr/share/fcai/build-info")
+    if glibc_too_new "$need"; then
+        find "$APPDIR" -type f -exec sh -c 'head -c4 "$1" | grep -q ELF && objdump -T "$1" 2>/dev/null | grep -q "GLIBC_$2[^0-9.]" && echo "  $1"' _ {} "$need" \; \
+            | sed "s|$APPDIR/||" | tee "$LOGDIR/glibc-too-new.txt"
+        die "$key=$need > GLIBC_MAX=$GLIBC_MAX (files above, in logs/glibc-too-new.txt): build with an older BASE_IMAGE (default ubuntu:20.04), or raise GLIBC_MAX"
+    fi
+done
 
 say "strings check (informational): build paths embedded in bundle files"
 grep -rlaF --exclude=build-info "$BUILD_ROOT" "$APPDIR" | sed "s|$APPDIR/||" | tee "$LOGDIR/embedded-build-paths.txt" || true

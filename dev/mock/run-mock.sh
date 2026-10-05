@@ -84,8 +84,10 @@ cp /bin/true "$IV/chrome-sandbox"; echo asar > "$IV/resources/app.asar"; echo MI
 rm -rf "$W/dist" "${XDG_RUNTIME_DIR:-/tmp}/fcai-$(id -u)" "/tmp/fcai-$(id -u)"
 echo "==> build.sh (mocked Frama-C), log: $W/build.out"
 rc=0
+# the mock bundles this machine's gcc: allow this machine's glibc
+HOST_GLIBC=$(getconf GNU_LIBC_VERSION | sed 's/^glibc //')
 (cd "$W" && BUILD_ROOT="$R" OUT_DIR="$W/dist" IVETTE_PREBUILT="$W/ivette-src" EXTRA_PLUGINS= \
-    bash "$REPO/build.sh") > "$W/build.out" 2>&1 || rc=$?
+    GLIBC_MAX="$HOST_GLIBC" bash "$REPO/build.sh") > "$W/build.out" 2>&1 || rc=$?
 grep -E '^(PASS|FAIL|WARN|SKIP|INFO) |ERROR|WARNING' "$W/build.out" | sort -u || true
 [ $rc = 0 ] || { echo "build.sh FAILED (rc=$rc), see $W/build.out"; exit $rc; }
 
@@ -98,4 +100,41 @@ rc=0
     bash "$T"/frama-c-*-offline-x86_64/run-tests.sh) > "$T/out.txt" 2>&1 || rc=$?
 echo "PASS: $(grep -c '^PASS' "$T/out.txt")"
 grep -E '^(FAIL|WARN|SKIP) ' "$T/out.txt" | sort -u || true
-exit $rc
+[ $rc = 0 ] || exit $rc
+
+# --- glibc too old on the target (real: bundle built on ubuntu:22.04 = glibc
+#     2.35, run on RHEL 9 = glibc 2.34 -> "GLIBC_2.35 not found") -------------
+# simulated with FCAI_HOST_GLIBC=2.17: AppRun, run-tests.sh and install.sh must
+# all refuse with a clear message
+echo "==> glibc-too-old scenarios (FCAI_HOST_GLIBC=2.17)"
+G="$W/glibc"; rm -rf "$G"; mkdir -p "$G/home"
+D=$(echo "$T"/frama-c-*-offline-x86_64)
+(cd "$G" && "$D"/*.AppImage --appimage-extract >/dev/null 2>&1)
+gfail() { echo "MOCK FAIL: $*"; exit 1; }
+out=$(env -i HOME="$G/home" PATH=/usr/bin:/bin FCAI_HOST_GLIBC=2.17 "$G/squashfs-root/AppRun" frama-c -version 2>&1) \
+    && gfail "AppRun ran with an older host glibc: $out"
+case "$out" in *"has glibc 2.17, but this bundle needs glibc >="*) echo "ok    AppRun refuses: ${out%%$'\n'*}" ;;
+    *) gfail "AppRun message: $out" ;; esac
+env -i HOME="$G/home" PATH=/usr/bin:/bin FCAI_HOST_GLIBC=2.17 FCAI_SKIP_GLIBC_CHECK=1 \
+    "$G/squashfs-root/AppRun" frama-c -version >/dev/null 2>&1 || gfail "FCAI_SKIP_GLIBC_CHECK=1 not honoured"
+echo "ok    FCAI_SKIP_GLIBC_CHECK=1 bypasses the check"
+rc=0; (cd "$G" && env -i HOME="$G/home" PATH=/usr/bin:/bin FCAI_HOST_GLIBC=2.17 \
+    bash "$D/run-tests.sh") > "$G/tests.out" 2>&1 || rc=$?
+[ $rc != 0 ] && grep -q '^FAIL  glibc .*host glibc 2.17 <' "$G/tests.out" && ! grep -q -- '-version' "$G/tests.out" \
+    && ls "$G"/fcai-test-report-*.txt >/dev/null 2>&1 \
+    || gfail "run-tests.sh did not stop on glibc (rc=$rc, $G/tests.out)"
+echo "ok    run-tests.sh: $(grep '^FAIL  glibc' "$G/tests.out" | head -n1 | cut -c1-90)... (stopped, report written)"
+rc=0; out=$(env -i HOME="$G/home" PATH=/usr/bin:/bin FCAI_HOST_GLIBC=2.17 sh "$D/install.sh" --dir "$G/inst" 2>&1) || rc=$?
+[ $rc != 0 ] && [ ! -e "$G/inst" ] && case "$out" in *"needs glibc >="*) true ;; *) false ;; esac \
+    || gfail "install.sh did not refuse (rc=$rc): $out"
+echo "ok    install.sh refuses"
+
+# --- build side: a bundled ELF needing glibc > GLIBC_MAX must stop the build --
+echo "==> build with GLIBC_MAX=2.17 (must fail, listing the offending files)"
+rc=0
+(cd "$W" && BUILD_ROOT="$R" OUT_DIR="$G/dist" IVETTE_PREBUILT="$W/ivette-src" EXTRA_PLUGINS= \
+    GLIBC_MAX=2.17 SKIP_SELFTEST=1 bash "$REPO/build.sh") > "$G/build.out" 2>&1 || rc=$?
+[ $rc != 0 ] && grep -q 'GLIBC_REQUIRED=.* > GLIBC_MAX=2.17' "$G/build.out" && [ -s "$G/dist/logs/glibc-too-new.txt" ] \
+    || gfail "build did not stop on GLIBC_MAX (rc=$rc, $G/build.out)"
+echo "ok    build stops: $(grep -o 'GLIBC_REQUIRED=[0-9.]* > GLIBC_MAX=2.17' "$G/build.out" | head -n1), files: $(tr -d ' ' < "$G/dist/logs/glibc-too-new.txt" | tr '\n' ' ')"
+echo "glibc scenarios: all ok"

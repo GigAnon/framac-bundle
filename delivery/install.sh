@@ -58,6 +58,16 @@ if [ $UNINSTALL = 1 ]; then
     exit 0
 fi
 
+# glibc: refuse early, with a clear message, on a host older than the bundle
+need=$(sed -n 's/^GLIBC_REQUIRED=//p' "$HERE/build-info.txt" 2>/dev/null | head -n1)
+have=${FCAI_HOST_GLIBC:-$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc //p')}
+if [ -n "$need" ] && [ -n "$have" ] && [ -z "${FCAI_SKIP_GLIBC_CHECK:-}" ] &&
+   [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -n1)" != "$need" ]; then
+    echo "error: this system has glibc $have, but the bundle needs glibc >= $need" >&2
+    echo "       (see build-info.txt; rebuild with an older BASE_IMAGE, or set FCAI_SKIP_GLIBC_CHECK=1)" >&2
+    exit 1
+fi
+
 chmod +x "$APPIMAGE"
 if [ $MODE = auto ]; then
     if "$APPIMAGE" --fcai-info >/dev/null 2>&1; then MODE=appimage; else

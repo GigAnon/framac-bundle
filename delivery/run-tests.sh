@@ -64,6 +64,39 @@ runl() {
     return $rc
 }
 
+# finish: write the report, print the summary, exit (0 iff no FAIL)
+finish() {
+    {
+        echo "############ Frama-C offline bundle -- test report ############"
+        cat "$WORK/env.txt"; echo
+        echo "---- build info"; cat "$WORK/build-info.txt"; echo
+        echo "---- results"; printf '%s\n' "${RESULTS[@]}"; echo
+        echo "FAIL: $NFAIL   WARN: $NWARN"; echo
+        if [ -f "$WORK/access-report.tsv" ]; then
+            echo "---- file-access report (non-standard paths touched during WP+Eva)"
+            cat "$WORK/access-report.tsv"; echo
+        fi
+        echo "---- files created under \$HOME"; cat "$WORK/home-files.txt" 2>/dev/null; echo
+        for f in "$LOGS"/*.log; do
+            id=$(basename "$f" .log)
+            if [ $((NFAIL + NWARN)) -gt 0 ]; then
+                echo "==== log $id"; head -n 400 "$f"
+            else
+                echo "==== log $id (tail)"; tail -n 15 "$f"
+            fi
+            echo
+        done
+    } > "$REPORT"
+
+    echo
+    echo "===================== SUMMARY ====================="
+    printf '%s\n' "${RESULTS[@]}"
+    echo "FAIL: $NFAIL   WARN: $NWARN"
+    echo "report: $REPORT"
+    if [ $KEEP = 1 ]; then echo "scratch kept: $WORK"; else rm -rf "$WORK"; fi
+    [ "$NFAIL" = 0 ]; exit
+}
+
 # ---------------------------------------------------------------------------
 echo "== environment"
 {
@@ -115,6 +148,24 @@ EXP_VERSION=$(binfo FRAMAC_VERSION)
 PROVERS=$(binfo PROVERS)
 BUILD_ROOTS=$(binfo BUILD_ROOTS)
 [ -n "$PROVERS" ] || PROVERS="z3 cvc4"
+
+# glibc: the host must be at least as new as the one the bundle was built
+# against; otherwise every program fails with "GLIBC_x.y not found"
+HOST_GLIBC=${FCAI_HOST_GLIBC:-$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc //p')}
+GLIBC_NEED=$(binfo GLIBC_REQUIRED)
+GLIBC_NEED_IV=$(binfo GLIBC_REQUIRED_IVETTE)
+ver_le() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+if [ -z "$HOST_GLIBC" ] || [ -z "$GLIBC_NEED" ]; then
+    result WARN glibc "cannot compare host glibc '${HOST_GLIBC:-?}' with required '${GLIBC_NEED:-?}'"
+elif ! ver_le "$GLIBC_NEED" "$HOST_GLIBC"; then
+    result FAIL glibc "host glibc $HOST_GLIBC < $GLIBC_NEED required by the bundle (built on $(binfo BUILD_BASE)): rebuild with an older BASE_IMAGE"
+    echo "stopping: nothing in the bundle can run on this host"
+    finish
+elif [ -n "$GLIBC_NEED_IV" ] && ! ver_le "$GLIBC_NEED_IV" "$HOST_GLIBC"; then
+    result FAIL glibc "host glibc $HOST_GLIBC >= $GLIBC_NEED (CLI ok), but Ivette needs $GLIBC_NEED_IV"
+else
+    result PASS glibc "host glibc $HOST_GLIBC >= required $GLIBC_NEED${GLIBC_NEED_IV:+ (Ivette: $GLIBC_NEED_IV)}"
+fi
 
 prover_label() { case "$1" in z3) echo Z3;; cvc4) echo CVC4;; cvc5) echo CVC5;; alt-ergo) echo Alt-Ergo;; *) echo "$1";; esac; }
 
@@ -446,32 +497,4 @@ echo "== HOME usage"
 result INFO home-writes "$(wc -l < "$WORK/home-files.txt") entries created under \$HOME (listed in report)"
 
 # ---------------------------------------------------------------------------
-{
-    echo "############ Frama-C offline bundle -- test report ############"
-    cat "$WORK/env.txt"; echo
-    echo "---- build info"; cat "$WORK/build-info.txt"; echo
-    echo "---- results"; printf '%s\n' "${RESULTS[@]}"; echo
-    echo "FAIL: $NFAIL   WARN: $NWARN"; echo
-    if [ -f "$WORK/access-report.tsv" ]; then
-        echo "---- file-access report (non-standard paths touched during WP+Eva)"
-        cat "$WORK/access-report.tsv"; echo
-    fi
-    echo "---- files created under \$HOME"; cat "$WORK/home-files.txt"; echo
-    for f in "$LOGS"/*.log; do
-        id=$(basename "$f" .log)
-        if [ $((NFAIL + NWARN)) -gt 0 ]; then
-            echo "==== log $id"; head -n 400 "$f"
-        else
-            echo "==== log $id (tail)"; tail -n 15 "$f"
-        fi
-        echo
-    done
-} > "$REPORT"
-
-echo
-echo "===================== SUMMARY ====================="
-printf '%s\n' "${RESULTS[@]}"
-echo "FAIL: $NFAIL   WARN: $NWARN"
-echo "report: $REPORT"
-if [ $KEEP = 1 ]; then echo "scratch kept: $WORK"; else rm -rf "$WORK"; fi
-[ "$NFAIL" = 0 ]
+finish

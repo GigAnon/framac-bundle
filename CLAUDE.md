@@ -7,7 +7,8 @@ Read this before changing anything. `README.md` is the user-facing overview, and
 - **Goal.** Frama-C, Why3 and the provers Z3 and CVC4 (plus cvc5, Alt-Ergo, the MetAcsl plug-in and the Ivette GUI) packaged as a **standalone, fully offline, path-independent** AppImage, with an extractable directory form.
 - **Path independence.** The bundle must work from any directory, after being copied or renamed, and with the build machine's paths absent. The owner's warning: opam bakes absolute paths into everything, and that is the whole reason for this project.
 - **Option A was chosen.** Frama-C is **one executable with every plug-in statically linked** (`-linkall`, `-no-autoload-plugins`). There is no dynlink, findlib or `OCAMLPATH` at run time.
-- **Build machine.** Online. The owner's machine runs Debian 13 and has Docker. A Docker build is fine (`build-in-container.sh`, `ubuntu:22.04` → glibc ≥ 2.35 on targets).
+- **Build machine.** Online. The owner's machine runs Debian 13 and has Docker. A Docker build is fine (`build-in-container.sh`, default `ubuntu:20.04` → glibc ≥ 2.31 on targets).
+- **Known target: RHEL 9 (9.8), glibc 2.34.** The bundle must never need a newer glibc: `build.sh` fails if any bundled ELF needs more than `GLIBC_MAX` (default 2.34).
 - **Target machine.** Offline, **no Docker**, no root, distro unknown. Installing must be trivial: `./install.sh`.
 - **Ivette is required.** The GTK GUI is gone in Frama-C 33. Ivette is built from `ivette/` in the Frama-C sources.
 - **MetAcsl is required.** `frama-c-metacsl.0.11`, built inside the Frama-C tree.
@@ -38,11 +39,11 @@ Each step is stamped in `$BUILD_ROOT/stamps`; `FORCE=step` or `FORCE=all` reruns
 | 3 | `framac-build` | `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
 | 4 | `framac-static` | `lib/gen_static_exe.py` finds the `frama-c` executable stanza, reads the plug-in libraries from `_build/install/default/lib/frama-c/plugins/*/META`, and writes `src/init/boot/fcai_static/dune`. It then builds and runs `dune install --release --relocatable --prefix $STAGE`. |
 | 5 | downloads | Z3 4.13.0 (glibc-2.31 build), CVC4 1.8 (static, CVC4-archived repo), cvc5 1.2.1 (static), appimagetool 1.9.0, type2 runtime 20251108. All pinned by SHA256. |
-| 6 | AppDir | The static `frama-c`, `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), `bundle_libs.py`, and the `usr$STAGE → usr` symlink. |
+| 6 | AppDir | The static `frama-c`, `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), `bundle_libs.py` (with a pinned static patchelf 0.18.0: focal's 0.10 is buggy), and the `usr$STAGE → usr` symlink. |
 | 7 | relocation check | Writes `usr/share/fcai/dune-dir-locations`. Moves a copy; **every** `-print-share-path` entry must exist and contain `libc/`. Parses a C file with `#include`s while the original AppDir is moved away. Runs `-plugins`. |
 | 8 | why3.conf template | `why3 config detect` against the bundled provers (`PATH=usr/bin` only). The AppDir path is replaced by `@APPDIR@`, and `datadir`/`libdir` lines are dropped. |
 | 8b | Ivette | Node 22.22.2 (checked against nodejs.org SHASUMS) + corepack/yarn 1. Runs `make -C ivette api` then `make -C ivette dist`. The resulting `dist/linux-unpacked` is imported; `IVETTE_PREBUILT` overrides. |
-| 9 | build-info | Versions, `GLIBC_REQUIRED`, `BUILD_ROOTS` (used by the strace test), and a strings scan of embedded build paths (informational only). |
+| 9 | build-info | Versions, `GLIBC_REQUIRED` (+ `_IVETTE`), `BUILD_ROOTS` (used by the strace test), and a strings scan of embedded build paths (informational only). **Dies** if a `GLIBC_REQUIRED*` > `GLIBC_MAX`, listing the files in `logs/glibc-too-new.txt`. |
 | 10 | self-test | `run-tests.sh` on the AppDir, using a clean `PATH`, from `/tmp`. If only `ivette-*` tests fail, the build still packages, with a warning. |
 | 11–12 | AppImage + delivery tar | The tar contains: AppImage, `install.sh`, `run-tests.sh`, `tests/`, `README.md`, `build-info.txt`, `SHA256SUMS`. |
 
@@ -78,6 +79,7 @@ Do not "fix" these back. Each one was observed in a real log.
   - Its config goes to `~/.config/Frama-C GUI/`. D-Bus errors under Xvfb are harmless.
 - **`AppRun` must `unset ARGV0`** after reading it. Otherwise Ivette → wrapper → AppRun re-dispatches to `ivette` (an infinite GUI loop).
 - **In the container:** no FUSE, no unprivileged `unshare`. Those tests SKIP in the self-test and run on the target.
+- **glibc floor = the build image's glibc.** The first delivered bundle was built on `ubuntu:22.04`; on RHEL 9.8 (glibc 2.34) it failed with `GLIBC_2.35 not found`. The files built in the image (`frama-c`, `gcc-real`/`cc1`, `why3server`, the copied libgmp/libstdc++) carry its glibc. Z3 (glibc-2.31 build) and CVC4/cvc5 (static) do not. So the default is now `ubuntu:20.04`, and three guards exist: the build-time `GLIBC_MAX` check, plus a clear refusal in `AppRun` (`check_glibc`), `run-tests.sh` (test `glibc`, stops early) and `install.sh`. `FCAI_SKIP_GLIBC_CHECK=1` bypasses them; `FCAI_HOST_GLIBC=X.Y` fakes the host version for tests.
 
 ## Design invariants
 
@@ -98,12 +100,14 @@ Do not "fix" these back. Each one was observed in a real log.
 - `alt-ergo`;
 - Ivette (`mock-ivette.c`: an ELF that starts `frama-c -server-socket` from `PATH`; `IVETTE_MOCK=bad` gives one that never does).
 
-It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, with real Z3/CVC4/cvc5, real gcc relocation and real appimagetool. Expect: build passes, ~96 PASS on the target run, no FAIL. **When a real build reveals a new behaviour, encode it in the mock first.**
+The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the workspace glibc (2.38 in the agent workspace); it passes `GLIBC_MAX=<host glibc>` to the build. After the target run it also runs the **glibc scenarios**: with `FCAI_HOST_GLIBC=2.17`, `AppRun`, `run-tests.sh` and `install.sh` must refuse clearly, and a build with `GLIBC_MAX=2.17` must die and list the offending files.
+
+It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, with real Z3/CVC4/cvc5, real gcc relocation and real appimagetool. Expect: build passes, ~98 PASS on the target run, no FAIL, then `glibc scenarios: all ok`. **When a real build reveals a new behaviour, encode it in the mock first.**
 
 ## Open items / next steps
 
-1. **The last real build had not finished green.** The fixes for the per-prover criteria and log clearing went out after the 44/50 report; they were validated by the mock only. Next: the owner rebuilds and expects a green self-test, then tests on the offline target.
-2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display, glibc of the target.
+1. **First build on `ubuntu:20.04` not yet done** (it uses a new docker volume, `fcai-build-ubuntu-20.04`, so it is a full rebuild). Things to watch in its log: focal apt packages (focal is out of standard support), Node 22 / electron-builder on focal, and the bundled preprocessor being gcc 9.4 instead of 11. The per-prover WP criteria, `wp-all` and log clearing are also still validated by the mock only. Next: the owner rebuilds, expects a green self-test and `GLIBC_REQUIRED` ≤ 2.31, then runs `run-tests.sh` on RHEL 9.8.
+2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display. The target is RHEL 9.8 (glibc 2.34); the 22.04 build failed there on glibc.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);

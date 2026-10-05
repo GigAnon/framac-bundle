@@ -8,7 +8,7 @@ This bundle contains one file, `Frama-C-<version>-x86_64.AppImage`, which holds 
 * **Provers.** Z3, CVC4 and, when they were included in the build, cvc5 and Alt-Ergo.
 * **A C preprocessor.** The `gcc` driver and `cc1` only, so Frama-C does not rely on the host having gcc.
 
-Nothing is downloaded at run time. Nothing is read from where the bundle was built, and the bundle works from any directory. The host has to provide only the Linux kernel, glibc (see `GLIBC_REQUIRED` in `build-info.txt`), `/bin/sh`, and basic coreutils such as `sed`, `cut`, `cksum` and `mktemp`.
+Nothing is downloaded at run time. Nothing is read from where the bundle was built, and the bundle works from any directory. The host has to provide only the Linux kernel, glibc (at least `GLIBC_REQUIRED` from `build-info.txt`; on an older system the bundle stops with a clear message, and `FCAI_SKIP_GLIBC_CHECK=1` makes it try anyway), `/bin/sh`, and basic coreutils such as `sed`, `cut`, `cksum` and `mktemp`.
 
 ## Install (no root, no network)
 

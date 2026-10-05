@@ -19,7 +19,7 @@ Output: `dist/frama-c-33.0-offline-x86_64.tar`, plus the build log and `selftest
 
 * **First run.** Takes about 30–60 minutes: OCaml, the opam dependencies and Frama-C are all built from source.
 * **Later runs.** Incremental, because opam and the sources are kept in the `fcai-build-*` docker volume. `FORCE=framac-static ./build-in-container.sh` redoes one step, and `FORCE=all` redoes all of them.
-* **Minimum glibc on targets.** Set by the build image: `ubuntu:22.04` (the default) gives glibc 2.35. For older targets, use `BASE_IMAGE=ubuntu:20.04`, which gives glibc 2.31.
+* **Minimum glibc on targets.** Set by the build image: `ubuntu:20.04` (the default) gives glibc 2.31, which covers RHEL 9 (2.34), Debian 11+ and Ubuntu 20.04+. The build fails if any bundled binary needs a glibc newer than `GLIBC_MAX` (default 2.34). On an older host, the bundle stops with a clear message instead of the loader's `GLIBC_x.y not found`.
 * **Ivette.** Built with `make -C ivette dist` using Node.js 22.22.2 (override with `NODE_VERSION`), which is downloaded and checked against nodejs.org's SHA256SUMS. To use an existing Ivette AppImage or unpacked app instead, set `IVETTE_PREBUILT=<file|dir>`. `WITH_IVETTE=0` leaves Ivette out. The self-test starts Ivette under Xvfb and checks that it runs the bundled `frama-c` as its server.
 * **Alt-Ergo licence.** Alt-Ergo 2.6 is under the OCamlPro non-commercial licence. `ALTERGO_PKG=alt-ergo-free.2.4.3` uses the free version instead, and `ALTERGO_PKG=` leaves Alt-Ergo out.
 
@@ -51,7 +51,7 @@ tar xf frama-c-33.0-offline-x86_64.tar && cd frama-c-33.0-offline-x86_64
 
 ```
 build.sh                  the build (steps are stamped and resumable)
-build-in-container.sh     runs build.sh in ubuntu:22.04 via docker/podman
+build-in-container.sh     runs build.sh in ubuntu:20.04 via docker/podman
 lib/gen_static_exe.py     generates the statically linked frama-c stanza
 lib/bundle_libs.py        copies shared libraries, sets relative RUNPATHs
 appdir/AppRun             multi-call entry point (frama-c, ivette, z3, cvc4, cvc5, alt-ergo)

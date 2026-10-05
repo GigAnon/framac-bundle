@@ -24,6 +24,9 @@
 #   FCAI_IVETTE_SANDBOX=0|1  force Chromium's sandbox off/on for Ivette
 #                         (default: on only if user namespaces are usable)
 #   FCAI_DEBUG=1          trace this script
+#   FCAI_SKIP_GLIBC_CHECK=1  do not compare the host glibc with the one the
+#                         bundle was built for (GLIBC_REQUIRED in --fcai-info)
+#   FCAI_HOST_GLIBC=X.Y   pretend the host glibc is X.Y (for tests)
 set -e
 [ -n "${FCAI_DEBUG:-}" ] && set -x
 
@@ -138,6 +141,40 @@ ivette_sandbox_flag() {
     echo "--no-sandbox"
 }
 
+# ver_lt A B: true if version A < version B (dot-separated integers)
+ver_lt() {
+    va=$1 vb=$2
+    while [ -n "$va$vb" ]; do
+        xa=${va%%.*} xb=${vb%%.*}
+        [ "${xa:-0}" -lt "${xb:-0}" ] && return 0
+        [ "${xa:-0}" -gt "${xb:-0}" ] && return 1
+        case $va in *.*) va=${va#*.} ;; *) va="" ;; esac
+        case $vb in *.*) vb=${vb#*.} ;; *) vb="" ;; esac
+    done
+    return 1
+}
+
+# Refuse to start with a clear message instead of the dynamic loader's
+# "version `GLIBC_x.y' not found" when the host glibc is older than the one
+# the bundle was built against.  Unknown versions (musl, no getconf) are not
+# checked.
+check_glibc() { # KEY... (build-info keys, e.g. GLIBC_REQUIRED)
+    [ -z "${FCAI_SKIP_GLIBC_CHECK:-}" ] || return 0
+    have=${FCAI_HOST_GLIBC:-$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc //p')}
+    case "$have" in ""|*[!0-9.]*) return 0 ;; esac
+    for key in "$@"; do
+        need=$(sed -n "s/^$key=//p" "$HERE/usr/share/fcai/build-info" 2>/dev/null | head -n1)
+        case "$need" in ""|*[!0-9.]*) continue ;; esac
+        if ver_lt "$have" "$need"; then
+            base=$(sed -n 's/^BUILD_BASE=//p' "$HERE/usr/share/fcai/build-info" 2>/dev/null | head -n1)
+            echo "frama-c bundle: this system has glibc $have, but this bundle needs glibc >= $need" >&2
+            echo "  (it was built on ${base:-an unknown system}; rebuild it with an older BASE_IMAGE," >&2
+            echo "   see README.md, or set FCAI_SKIP_GLIBC_CHECK=1 to try anyway)" >&2
+            exit 1
+        fi
+    done
+}
+
 # bundle options are recognised whatever the command name (no tool uses them)
 case "${1:-}" in
     --fcai-*) CMD=AppRun ;;
@@ -152,6 +189,7 @@ if ! is_cmd "$CMD"; then
             exit 0 ;;
         --fcai-run)
             shift
+            check_glibc GLIBC_REQUIRED
             setup_env
             exec "$@" ;;
         --fcai-*) echo "unknown option $1 (try --fcai-help)" >&2; exit 2 ;;
@@ -164,6 +202,12 @@ if ! is_cmd "$CMD"; then
     else
         CMD=frama-c
     fi
+fi
+
+if [ "$CMD" = ivette ]; then
+    check_glibc GLIBC_REQUIRED GLIBC_REQUIRED_IVETTE
+else
+    check_glibc GLIBC_REQUIRED
 fi
 
 case "$CMD" in
