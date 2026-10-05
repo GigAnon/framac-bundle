@@ -64,7 +64,23 @@ done
 # --- fake Why3 CLI / data / libdir, fake alt-ergo ------------------------------
 mkdir -p "$W/why3data/drivers" "$W/why3lib"
 echo "(* mock driver *)" > "$W/why3data/drivers/z3.drv"
-printf '#!/bin/sh\n' > "$W/why3lib/why3server"; chmod +x "$W/why3lib/why3server"
+# why3server: an ELF depending on libraries laid out like ubuntu:20.04's
+# libmpc.so.3 (old binutils: 2 MiB p_align, no separate-code), with an
+# absolute RUNPATH into the build root.  Real failure: patchelf 0.18 adding a
+# RUNPATH to such a library -> glibc 2.31: "ELF load command address/offset
+# not properly aligned".  bundle_libs.py must leave them aligned and loadable.
+OLD="$R/oldlibs"; rm -rf "$OLD"; mkdir -p "$OLD"
+OLDLD="-Wl,-z,max-page-size=0x200000 -Wl,-z,noseparate-code"
+printf 'int fcai_old2(void){ return 41; }\n' > "$OLD/old2.c"
+printf 'int fcai_old2(void);\nint fcai_old(void){ return fcai_old2() + 1; }\n' > "$OLD/old.c"
+printf '#include <stdio.h>\nint fcai_old(void);\nint main(void){ if (fcai_old() != 42) return 1; puts("why3server-ok"); return 0; }\n' > "$OLD/server.c"
+# shellcheck disable=SC2086
+gcc -shared -fPIC -O2 $OLDLD -o "$OLD/libfcaiold2.so.1" -Wl,-soname,libfcaiold2.so.1 "$OLD/old2.c"
+# shellcheck disable=SC2086
+gcc -shared -fPIC -O2 $OLDLD -o "$OLD/libfcaiold.so.1" -Wl,-soname,libfcaiold.so.1 "$OLD/old.c" \
+    "$OLD/libfcaiold2.so.1" -Wl,--enable-new-dtags,-rpath,"$OLD"
+gcc -O2 -o "$W/why3lib/why3server" "$OLD/server.c" "$OLD/libfcaiold.so.1" -Wl,--enable-new-dtags,-rpath,"$OLD"
+"$W/why3lib/why3server" | grep -q why3server-ok || { echo "mock why3server does not run"; exit 1; }
 sed -e "s|@WHY3LIB@|$W/why3lib|" -e "s|@WHY3DATA@|$W/why3data|" "$MOCKSRC/why3.in" > "$W/mockbin/why3"
 chmod +x "$W/mockbin/why3"
 install -m 755 "$MOCKSRC/alt-ergo" "$W/mockbin/alt-ergo"

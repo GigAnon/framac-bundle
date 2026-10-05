@@ -39,7 +39,7 @@ Each step is stamped in `$BUILD_ROOT/stamps`; `FORCE=step` or `FORCE=all` reruns
 | 3 | `framac-build` | `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
 | 4 | `framac-static` | `lib/gen_static_exe.py` finds the `frama-c` executable stanza, reads the plug-in libraries from `_build/install/default/lib/frama-c/plugins/*/META`, and writes `src/init/boot/fcai_static/dune`. It then builds and runs `dune install --release --relocatable --prefix $STAGE`. |
 | 5 | downloads | Z3 4.13.0 (glibc-2.31 build), CVC4 1.8 (static, CVC4-archived repo), cvc5 1.2.1 (static), appimagetool 1.9.0, type2 runtime 20251108. All pinned by SHA256. |
-| 6 | AppDir | The static `frama-c`, `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), `bundle_libs.py` (with a pinned static patchelf 0.18.0: focal's 0.10 is buggy), and the `usr$STAGE → usr` symlink. |
+| 6 | AppDir | The static `frama-c`, `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), `bundle_libs.py` (pinned static patchelf 0.18.0; executables get a relative DT_RPATH, copied libraries are **not modified**, every patched file is checked for PT_LOAD alignment, and `ldd` errors fail the build), and the `usr$STAGE → usr` symlink. |
 | 7 | relocation check | Writes `usr/share/fcai/dune-dir-locations`. Moves a copy; **every** `-print-share-path` entry must exist and contain `libc/`. Parses a C file with `#include`s while the original AppDir is moved away. Runs `-plugins`. |
 | 8 | why3.conf template | `why3 config detect` against the bundled provers (`PATH=usr/bin` only). The AppDir path is replaced by `@APPDIR@`, and `datadir`/`libdir` lines are dropped. |
 | 8b | Ivette | Node 22.22.2 (checked against nodejs.org SHASUMS) + corepack/yarn 1. Runs `make -C ivette api` then `make -C ivette dist`. The resulting `dist/linux-unpacked` is imported; `IVETTE_PREBUILT` overrides. |
@@ -79,6 +79,11 @@ Do not "fix" these back. Each one was observed in a real log.
   - Its config goes to `~/.config/Frama-C GUI/`. D-Bus errors under Xvfb are harmless.
 - **`AppRun` must `unset ARGV0`** after reading it. Otherwise Ivette → wrapper → AppRun re-dispatches to `ivette` (an infinite GUI loop).
 - **In the container:** no FUSE, no unprivileged `unshare`. Those tests SKIP in the self-test and run on the target.
+- **Never add a RUNPATH to a bundled library.** First `ubuntu:20.04` build: the relocation check failed with `cc1: error while loading shared libraries: libmpc.so.3: ELF load command address/offset not properly aligned`. Focal's `libmpc.so.3` was linked by old binutils (2 MiB `p_align`, no separate-code). Adding a RUNPATH makes patchelf 0.18 append a PT_LOAD aligned to 4 KiB only (reproduced: `offset=0x201000 vaddr=0x600000 align=0x200000`). glibc 2.31 refuses that; glibc 2.39 tolerates it. The 22.04 build never hit this. Hence:
+  - executables get **DT_RPATH** (`--force-rpath`), which glibc also searches for their libraries' dependencies, so libraries need no path of their own;
+  - copied libraries stay byte-identical, except that an RPATH/RUNPATH they bring is removed;
+  - `patch()` checks alignment after each patchelf run and retries with `--page-size = max p_align`;
+  - the final check fails on misaligned PT_LOADs, on `ldd` errors (stderr/rc were ignored before, which let the broken library through), and on executables that still have a RUNPATH. Libraries are checked with `LD_LIBRARY_PATH=usr/lib`, which simulates the RPATH of the executable that loads them.
 - **glibc floor = the build image's glibc.** The first delivered bundle was built on `ubuntu:22.04`; on RHEL 9.8 (glibc 2.34) it failed with `GLIBC_2.35 not found`. The files built in the image (`frama-c`, `gcc-real`/`cc1`, `why3server`, the copied libgmp/libstdc++) carry its glibc. Z3 (glibc-2.31 build) and CVC4/cvc5 (static) do not. So the default is now `ubuntu:20.04`, and three guards exist: the build-time `GLIBC_MAX` check, plus a clear refusal in `AppRun` (`check_glibc`), `run-tests.sh` (test `glibc`, stops early) and `install.sh`. `FCAI_SKIP_GLIBC_CHECK=1` bypasses them; `FCAI_HOST_GLIBC=X.Y` fakes the host version for tests.
 
 ## Design invariants
@@ -98,7 +103,8 @@ Do not "fix" these back. Each one was observed in a real log.
 - the stage (`frama-c-static.in`: mimics `-print-share-path` with the baked second entry, `DUNE_DIR_LOCATIONS` handling, libc taken from the *baked* entry, the why3server requirement, prover calls through `PATH`);
 - the Why3 CLI (`why3.in`);
 - `alt-ergo`;
-- Ivette (`mock-ivette.c`: an ELF that starts `frama-c -server-socket` from `PATH`; `IVETTE_MOCK=bad` gives one that never does).
+- Ivette (`mock-ivette.c`: an ELF that starts `frama-c -server-socket` from `PATH`; `IVETTE_MOCK=bad` gives one that never does);
+- `why3server`: an ELF depending on `libfcaiold.so.1` → `libfcaiold2.so.1`, both linked old-style (2 MiB `p_align`, no separate-code, like focal's libmpc), with an absolute RUNPATH into the build root. The mock frama-c runs it and requires `why3server-ok`, so library loading is exercised in every relocation test and under strace. The old library patching gives misaligned PT_LOADs on these files, which the new check rejects.
 
 The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the workspace glibc (2.38 in the agent workspace); it passes `GLIBC_MAX=<host glibc>` to the build. After the target run it also runs the **glibc scenarios**: with `FCAI_HOST_GLIBC=2.17`, `AppRun`, `run-tests.sh` and `install.sh` must refuse clearly, and a build with `GLIBC_MAX=2.17` must die and list the offending files.
 
@@ -106,7 +112,7 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 
 ## Open items / next steps
 
-1. **First build on `ubuntu:20.04` not yet done** (it uses a new docker volume, `fcai-build-ubuntu-20.04`, so it is a full rebuild). Things to watch in its log: focal apt packages (focal is out of standard support), Node 22 / electron-builder on focal, and the bundled preprocessor being gcc 9.4 instead of 11. The per-prover WP criteria, `wp-all` and log clearing are also still validated by the mock only. Next: the owner rebuilds, expects a green self-test and `GLIBC_REQUIRED` ≤ 2.31, then runs `run-tests.sh` on RHEL 9.8.
+1. **First `ubuntu:20.04` build: failed at the relocation check (libmpc alignment, fixed above); next run pending.** Steps 0–4 (apt, opam, Frama-C, Electron libs) passed on focal. Still to watch: Node 22 / electron-builder on focal, and the bundled preprocessor being gcc 9.4 instead of 11. The per-prover WP criteria, `wp-all` and log clearing are also still validated by the mock only. Next: the owner rebuilds, expects a green self-test and `GLIBC_REQUIRED` ≤ 2.31, then runs `run-tests.sh` on RHEL 9.8.
 2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display. The target is RHEL 9.8 (glibc 2.34); the 22.04 build failed there on glibc.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);
