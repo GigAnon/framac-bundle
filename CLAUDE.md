@@ -84,6 +84,7 @@ Do not "fix" these back. Each one was observed in a real log.
   - copied libraries stay byte-identical, except that an RPATH/RUNPATH they bring is removed;
   - `patch()` checks alignment after each patchelf run and retries with `--page-size = max p_align`;
   - the final check fails on misaligned PT_LOADs, on `ldd` errors (stderr/rc were ignored before, which let the broken library through), and on executables that still have a RUNPATH. Libraries are checked with `LD_LIBRARY_PATH=usr/lib`, which simulates the RPATH of the executable that loads them.
+- **First green `ubuntu:20.04` self-test (2026-10-05).** It reports `GLIBC_REQUIRED=2.29` and `GLIBC_REQUIRED_IVETTE=2.25`, so RHEL 9 (2.34) is covered. Node 22 / electron-builder and the gcc 9.4 preprocessor work on focal. WP gives the same counts as on 22.04 (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50) and `wp-negative` gives 3/4. The only WARN is `reloc-spaces`, which is expected. `offline` SKIPs in the container.
 - **glibc floor = the build image's glibc.** The first delivered bundle was built on `ubuntu:22.04`; on RHEL 9.8 (glibc 2.34) it failed with `GLIBC_2.35 not found`. The files built in the image (`frama-c`, `gcc-real`/`cc1`, `why3server`, the copied libgmp/libstdc++) carry its glibc. Z3 (glibc-2.31 build) and CVC4/cvc5 (static) do not. So the default is now `ubuntu:20.04`, and three guards exist: the build-time `GLIBC_MAX` check, plus a clear refusal in `AppRun` (`check_glibc`), `run-tests.sh` (test `glibc`, stops early) and `install.sh`. `FCAI_SKIP_GLIBC_CHECK=1` bypasses them; `FCAI_HOST_GLIBC=X.Y` fakes the host version for tests.
 
 ## Design invariants
@@ -112,7 +113,7 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 
 ## Open items / next steps
 
-1. **First `ubuntu:20.04` build: failed at the relocation check (libmpc alignment, fixed above); next run pending.** Steps 0–4 (apt, opam, Frama-C, Electron libs) passed on focal. Still to watch: Node 22 / electron-builder on focal, and the bundled preprocessor being gcc 9.4 instead of 11. The per-prover WP criteria, `wp-all` and log clearing are also still validated by the mock only. Next: the owner rebuilds, expects a green self-test and `GLIBC_REQUIRED` ≤ 2.31, then runs `run-tests.sh` on RHEL 9.8.
+1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). Next: `run-tests.sh` on the RHEL 9.8 target, then send back the report.
 2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display. The target is RHEL 9.8 (glibc 2.34); the 22.04 build failed there on glibc.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);
