@@ -139,7 +139,7 @@ Do not "fix" these back. Each one was observed in a real log.
       - It is now parsed line by line. Any non-`bool` option takes an argument, and an enumerated string's values go into `_fcai_optvals`.
       - The first parser grabbed every `-word` token and would have taken `-1` as an option.
       - The mock serves an excerpt of the real file (`dev/mock/help/autocomplete-all.txt`), and the test checks `-wp-cache upd` and `-std c1`.
-    - **Not yet verified on a real build:** the formats of `-wp-list-provers` and `<key-opt> help` follow upstream's regexes. Check `completion.txt`, which now counts WP provers and value lists, and the `completion-src/keys-*`, `wp-list-provers` and `autocomplete-all` dumps.
+    - **Verified on build-20261008-1818:** `-wp-list-provers` gives `Alt-Ergo:2.6.2 CVC4:1.8 CVC5:1.2.1 Z3:4.13.0` (plus our short names), and every `-*-msg-key`/`-*-warn-key` gets its categories, including `:` sub-keys (`annot:missing-spec`, `memdebug:alias`). 40 options carry value lists.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants
@@ -178,10 +178,11 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 
 ## Open items / next steps
 
-1. **Release build-20261008-1759, run by the agent** (Ubuntu 24.04, glibc 2.39): every test PASSes except `why3` and `why3config`, both caused by the build-tree dependency of the opam `why3` (fixed by the relocatable rebuild, mock only).
-   - These PASS: FUSE mount, extraction, `reloc-appimage`/`dir`/`orig-hidden`, `offline` (`unshare -rn`), `strace-leaks`, all Ivette tests (Xvfb), and `completion` (1185 options).
-   - The owner reports that the bundle works on RHEL 9.8.
-   - Next: a rebuild (the new `why3-reloc` step needs network and about 5–10 minutes), then a new release for the agent to test.
+1. **Release build-20261008-1818, run by the agent** (Ubuntu 24.04, glibc 2.39): **110 PASS, 0 FAIL**, 1 WARN (`reloc-spaces`, expected). The relocatable `why3` works: `why3`/`why3config` PASS in both modes, and `strace-leaks` (now also tracing `why3 prove`) PASSes.
+   - Also PASS: FUSE mount, extraction, relocation, `offline` (`unshare -rn`), all Ivette tests (Xvfb), `completion` (1185 options).
+   - Earlier release build-20261008-1759 failed only `why3`/`why3config` (opam why3 using the build tree; see above).
+   - The owner reports that the bundle works on RHEL 9.8 (a target report for the 1818 build is still wanted).
+   - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
 2. **Not yet tested:** Ivette with a real display.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);

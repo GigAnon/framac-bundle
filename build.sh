@@ -656,7 +656,8 @@ ver() { "$APPDIR/usr/bin/$1" --version 2>&1 | head -n1; }
     for p in $PROVERS; do echo "PROVER_$(echo "$p" | tr a-z- A-Z_)=$(ver "$p")"; done
     echo "PREPROCESSOR=$("$CPPROOT/bin/gcc" --version | head -n1)"
     if [ -x "$APPDIR/usr/lib/fcai-python/bin/python3" ]; then echo "PYTHON=$("$APPDIR/usr/lib/fcai-python/bin/python3" --version 2>&1) + PyYAML $PYYAML_TAG (pure Python)"; else echo "PYTHON=host"; fi
-    echo "PLUGINS=$(grep -oE '^ *[A-Za-z][A-Za-z0-9_-]*' "$LOGDIR/plugins.txt" | tr -s ' \n' ' ' | sed 's/^ //')"
+    # one plug-in per line in column 0, "Name  description"; continuations are indented
+    echo "PLUGINS=$(grep -E '^[A-Za-z]' "$LOGDIR/plugins.txt" | sed 's/  .*//' | paste -sd, - | sed 's/,/, /g')"
     echo "GLIBC_REQUIRED=$glibc_floor"
     if [ -d "$APPDIR/usr/lib/ivette" ]; then
         echo "GLIBC_REQUIRED_IVETTE=$(find "$APPDIR/usr/lib/ivette" -type f -exec sh -c 'head -c4 "$1" | grep -q ELF && objdump -T "$1" 2>/dev/null' _ {} \; \
