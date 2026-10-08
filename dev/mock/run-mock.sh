@@ -61,6 +61,9 @@ for h in stdio.h string.h stdint.h limits.h stdlib.h; do
         > "$STAGE/share/frama-c/share/libc/$h"
 done
 
+install -m 755 "$MOCKSRC/frama-c-script" "$STAGE/bin/frama-c-script"
+install -D -m 644 "$MOCKSRC/find_fun.py" "$STAGE/share/frama-c/share/analysis-scripts/find_fun.py"
+
 # --- fake Why3 CLI / data / libdir, fake alt-ergo ------------------------------
 mkdir -p "$W/why3data/drivers" "$W/why3lib"
 echo "(* mock driver *)" > "$W/why3data/drivers/z3.drv"

@@ -7,7 +7,7 @@
 #
 # Command selection:
 #   * name it was invoked under (symlink name, or $ARGV0 for an AppImage):
-#       frama-c, ivette, z3, cvc4, cvc5, alt-ergo
+#       frama-c, frama-c-script, ivette, z3, cvc4, cvc5, alt-ergo
 #   * otherwise, if the first argument is one of those names, it is used;
 #   * otherwise, with no argument at all and no terminal, ivette;
 #   * otherwise the command is frama-c and all arguments are passed to it.
@@ -50,7 +50,7 @@ IVETTE_DIR="$HERE/usr/lib/ivette"
 
 is_cmd() {
     case "$1" in
-        frama-c|z3|cvc4|cvc5|alt-ergo) [ -x "$HERE/usr/bin/$1" ] ;;
+        frama-c|frama-c-script|z3|cvc4|cvc5|alt-ergo) [ -x "$HERE/usr/bin/$1" ] ;;
         ivette) [ -f "$IVETTE_DIR/.fcai-exe" ] ;;
         *) return 1 ;;
     esac
@@ -59,7 +59,7 @@ is_cmd() {
 usage() {
     sed -n '2,/^set -e/p' "$SELF" | sed -e '$d' -e 's/^# \{0,1\}//'
     echo "Bundled commands:"
-    for c in frama-c ivette z3 cvc4 cvc5 alt-ergo; do
+    for c in frama-c frama-c-script ivette z3 cvc4 cvc5 alt-ergo; do
         is_cmd "$c" && echo "  $c"
     done
     return 0
@@ -215,6 +215,11 @@ case "$CMD" in
         setup_env
         # plug-ins are linked in statically: never scan for dynamic ones
         exec "$HERE/usr/bin/frama-c" -no-autoload-plugins "$@" ;;
+    frama-c-script)
+        # bash script; it runs python3 / make from the host and the bundled
+        # frama-c (usr/bin, or the wrapper first in PATH)
+        setup_env
+        exec bash "$HERE/usr/bin/frama-c-script" "$@" ;;
     ivette)
         setup_env
         exe=$(cat "$IVETTE_DIR/.fcai-exe")

@@ -11,7 +11,7 @@
 #   --appimage     force AppImage mode even if FUSE seems unavailable
 #   --no-links     do not create symlinks
 #
-# Commands linked into BINDIR: frama-c, ivette, z3, cvc4, and cvc5 /
+# Commands linked into BINDIR: frama-c, frama-c-script, ivette, z3, cvc4, and cvc5 /
 # alt-ergo when bundled.  Everything is relative to DIR: moving DIR only requires
 # re-running the installer (or fixing the symlinks).
 set -eu
@@ -44,7 +44,7 @@ case "$DIR" in
     *" "*) echo "warning: DIR contains spaces; this is not recommended" >&2 ;;
 esac
 
-CMDS="frama-c ivette z3 cvc4 cvc5 alt-ergo"
+CMDS="frama-c frama-c-script ivette z3 cvc4 cvc5 alt-ergo"
 
 if [ $UNINSTALL = 1 ]; then
     [ -d "$DIR" ] && DIR=$(cd "$DIR" && pwd)

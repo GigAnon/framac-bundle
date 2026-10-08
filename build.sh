@@ -270,6 +270,14 @@ ln -s frama-c.svg "$APPDIR/.DirIcon"
 # Frama-C: the static executable + its data (share/); no OCaml libraries
 install -m 755 "$STAGE/bin/frama-c-static" "$APPDIR/usr/bin/frama-c"
 cp -a "$STAGE/share/." "$APPDIR/usr/share/"
+# frama-c-script: bash front-end to share/analysis-scripts (python3 and make
+# come from the host).  In the bundle, -print-share-path prints the env entry
+# AND the baked one, so any "$(... -print-share-path)" keeps the first line only.
+[ -f "$STAGE/bin/frama-c-script" ] || die "frama-c-script was not installed in $STAGE/bin"
+cp "$STAGE/bin/frama-c-script" "$LOGDIR/frama-c-script.orig.txt"
+python3 "$SRC_DIR/lib/patch_script.py" "$STAGE/bin/frama-c-script" "$APPDIR/usr/bin/frama-c-script" \
+    | tee "$LOGDIR/frama-c-script-patch.txt"
+chmod 755 "$APPDIR/usr/bin/frama-c-script"
 # empty plug-in site directories (nothing to autoload, but the dirs exist)
 for d in "$STAGE"/lib/*/plugins*; do
     if [ -d "$d" ]; then mkdir -p "$APPDIR/usr/lib/${d#"$STAGE/lib/"}"; fi

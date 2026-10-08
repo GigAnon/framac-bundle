@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# MOCK frama-c-script: finds its helpers like the real one is assumed to,
+# through "$(frama-c -print-share-path)" -- which prints TWO lines in the
+# bundle (env entry + baked entry), so unpatched it breaks.
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+FRAMAC_BIN="$DIR"
+FRAMAC_SHARE="$("${FRAMAC_BIN}/frama-c" -no-autoload-plugins -print-share-path)"
+case "${1:-help}" in
+    help|-h|--help) echo "usage: frama-c-script cmd [args]"; echo "  find-fun <fun> [dirs]"; exit 0 ;;
+    find-fun) shift; exec python3 "$FRAMAC_SHARE/analysis-scripts/find_fun.py" "$@" ;;
+    *) echo "unknown command: $1" >&2; exit 1 ;;
+esac

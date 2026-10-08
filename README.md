@@ -53,8 +53,9 @@ tar xf frama-c-33.0-offline-x86_64.tar && cd frama-c-33.0-offline-x86_64
 build.sh                  the build (steps are stamped and resumable)
 build-in-container.sh     runs build.sh in ubuntu:20.04 via docker/podman
 lib/gen_static_exe.py     generates the statically linked frama-c stanza
+lib/patch_script.py       makes frama-c-script use the first -print-share-path line
 lib/bundle_libs.py        copies shared libraries, sets relative RUNPATHs
-appdir/AppRun             multi-call entry point (frama-c, ivette, z3, cvc4, cvc5, alt-ergo)
+appdir/AppRun             multi-call entry point (frama-c, frama-c-script, ivette, z3, cvc4, cvc5, alt-ergo)
 appdir/fcai-wrappers/     'frama-c' as seen by Ivette
 delivery/install.sh       offline installer
 delivery/run-tests.sh     offline acceptance tests

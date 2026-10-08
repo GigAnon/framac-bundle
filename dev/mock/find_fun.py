@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+# MOCK share/analysis-scripts/find_fun.py
+import os, re, sys
+fun, dirs = sys.argv[1], sys.argv[2:] or ["."]
+pat = re.compile(r"\b%s\s*\(" % re.escape(fun))
+hits = [os.path.join(r, f) for d in dirs for r, _, fs in os.walk(d) for f in fs
+        if f.endswith(".c") and pat.search(open(os.path.join(r, f)).read())]
+print("Possible definitions for function %s:" % fun)
+for h in sorted(hits): print("  " + h)
+sys.exit(0 if hits else 1)
