@@ -126,7 +126,11 @@ Do not "fix" these back. Each one was observed in a real log.
     - Upstream runs frama-c on every TAB: `-autocomplete @all` for options, `-wp-list-provers` for `-wp-prover` (bracketed names separated by `|`), and `<opt> help` for `-wp-msg-key`, `-kernel-msg-key` and `-kernel-warn-key`. It also globally removes `:` from `COMP_WORDBREAKS`, and registers `frama-c` and `frama-c-gui`.
     - Ours now takes all of these at build time: options from `-autocomplete @all`, prover names from `-wp-list-provers`, and the keys of **every** `-*-msg-key` and `-*-warn-key` option. The values sit in a bash associative array, `_fcai_optvals`, and are completed as comma-separated lists.
     - Words are taken from `COMP_LINE`, and the part before the last `:` is trimmed from candidates, so `native:alt-ergo` and `annot:missing-spec` complete without touching `COMP_WORDBREAKS`. `frama-c-gui` is registered too.
-    - **Not yet verified on a real build:** the formats of `-autocomplete @all`, `-wp-list-provers` and `<key-opt> help` follow upstream's regexes. Check `completion.txt`, which now counts WP provers and value lists, and the `completion-src/keys-*`, `wp-list-provers` and `autocomplete-all` dumps.
+    - **`frama-c -autocomplete @all` (real 33.0 output, supplied by the owner)**: under each "Plugin: <name>" header there is one line per option, `  -opt: <type>` with `<type>` being `bool`, `string` or `int`. A parenthesised list follows for enumerated strings (`-wp-cache: string (none, update, cleanup, replay, rebuild, offline)`, `-std: string (c11, c17, c23, c2y)`) and for int ranges (`-eva-precision: int (-1, 11)`).
+      - It is now parsed line by line. Any non-`bool` option takes an argument, and an enumerated string's values go into `_fcai_optvals`.
+      - The first parser grabbed every `-word` token and would have taken `-1` as an option.
+      - The mock serves an excerpt of the real file (`dev/mock/help/autocomplete-all.txt`), and the test checks `-wp-cache upd` and `-std c1`.
+    - **Not yet verified on a real build:** the formats of `-wp-list-provers` and `<key-opt> help` follow upstream's regexes. Check `completion.txt`, which now counts WP provers and value lists, and the `completion-src/keys-*`, `wp-list-provers` and `autocomplete-all` dumps.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants

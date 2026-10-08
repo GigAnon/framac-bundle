@@ -7,7 +7,8 @@ ivette and frama-c-script, from the bundled frama-c's own help:
     frama-c -plugins          -> plug-ins and their "-<x>-h" help options
     frama-c -kernel-h, -<x>-h -> every option, "<arg>" and "-no-" opposites
     frama-c -machdep help     -> machdeps
-    frama-c -autocomplete @all -> options (what upstream's autocomplete_frama-c uses)
+    frama-c -autocomplete @all -> options, their type (bool: no argument) and
+                              the values of enumerated string options
     frama-c -wp-list-provers  -> prover names accepted by -wp-prover
     frama-c -X-msg-key help, -X-warn-key help -> message / warning categories
     frama-c-script help       -> sub-commands
@@ -73,9 +74,25 @@ def main():
         parse_help(run(fc + [h], dump_dir, "help" + h), opts, argopts, fileopts)
     opts.update(help_opts)
 
-    # upstream's own option list (share/autocomplete_frama-c relies on it)
+    # upstream's own option list (share/autocomplete_frama-c relies on it).
+    # Real 33.0 format, one option per line under "Plugin: <name>":
+    #   "  -eva-precision: int (-1, 11)"      int range: takes an argument
+    #   "  -wp-cache: string (none, update, cleanup, replay, rebuild, offline)"
+    #   "  -eva-show-progress: bool"           no argument
     auto = run(fc + ["-autocomplete", "@all"], dump_dir, "autocomplete-all")
-    opts.update(re.findall(r"(?:^|\s)(-[A-Za-z0-9][\w-]*)", auto))
+    enums = {}
+    for line in auto.splitlines():
+        m = re.match(r"^\s+(--?[A-Za-z0-9][\w-]*):\s*(\w+)(?:\s*\((.*)\))?\s*$", line)
+        if not m:
+            continue
+        name, typ, extra = m.group(1), m.group(2), m.group(3)
+        opts.add(name)
+        if typ != "bool":
+            argopts.add(name)
+        if typ == "string" and extra:
+            vals = [v.strip() for v in extra.split(",") if v.strip()]
+            if vals and all(re.match(r"^[\w:.+-]+$", v) for v in vals):
+                enums[name] = set(vals)
 
     # per-option value lists (comma-separated): message and warning categories
     optvals = {}
@@ -106,6 +123,7 @@ def main():
     script_cmds = set(re.findall(r"^\s+-\s+([a-z][a-z0-9-]*)", stext, re.M))
 
     wp_provers = set(provers.split()) | wp_names | {"native:alt-ergo", "script", "tip", "none"}
+    optvals.update(enums)
     optvals["-wp-prover"] = wp_provers
     optvals["-machdep"] = machdeps | {"help"}
     for o in list(optvals):

@@ -568,6 +568,8 @@ chk "opposite option"    -no-unicode      -- frama-c -no-unic
 chk "machdep value"      x86_64           -- frama-c -machdep x86_6
 chk "warn-key value"     annot-error      -- frama-c -kernel-warn-key annot-e
 chk "prover after ':'"   alt-ergo         -- frama-c -wp-prover native:alt
+chk "enum value"         update           -- frama-c -wp-cache upd
+chk "enum value (std)"   c17              -- frama-c -std c1
 chk "prover list"        alt-ergo,z3      -- frama-c -wp-prover alt-ergo,z
 chk "C source"           "$T/eva.c"       -- frama-c -eva "$T/ev"
 chk "ivette"             -wp              -- ivette -wp
