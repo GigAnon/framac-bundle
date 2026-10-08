@@ -216,9 +216,14 @@ case "$CMD" in
         # plug-ins are linked in statically: never scan for dynamic ones
         exec "$HERE/usr/bin/frama-c" -no-autoload-plugins "$@" ;;
     frama-c-script)
-        # bash script; it runs python3 / make from the host and the bundled
+        # bash script; it runs python3 (bundled) / make (host) and the bundled
         # frama-c (usr/bin, or the wrapper first in PATH)
         setup_env
+        # its helpers need python >= 3.10: the bundled one comes first
+        if [ -x "$HERE/usr/lib/fcai-python/bin/python3" ]; then
+            unset PYTHONHOME PYTHONPATH PYTHONSTARTUP PYTHONUSERBASE
+            PATH="$HERE/usr/lib/fcai-python/bin:$PATH"; export PATH
+        fi
         exec bash "$HERE/usr/bin/frama-c-script" "$@" ;;
     ivette)
         setup_env

@@ -159,18 +159,19 @@ rc=0
 echo "ok    build stops: $(grep -o 'GLIBC_REQUIRED=[0-9.]* > GLIBC_MAX=2.17' "$G/build.out" | head -n1), files: $(tr -d ' ' < "$G/dist/logs/glibc-too-new.txt" | tr '\n' ' ')"
 echo "glibc scenarios: all ok"
 
-# --- host python3 older than 3.9 (real: ubuntu:20.04 container, 3.8) --------
-# Frama-C 33's analysis scripts use list[str]: frama-c-script must WARN, not FAIL
-echo "==> frama-c-script with a python3 reporting 3.8"
+# --- host python3 too old (real: focal 3.8, RHEL 9 3.9; the helpers need 3.10)
+# frama-c-script must use the BUNDLED python: the host python3 stub reports
+# 3.8 and fails if it is asked to run a script
+echo "==> frama-c-script with a host python3 that is 3.8 and must not be used"
 PY="$W/py38"; rm -rf "$PY"; mkdir -p "$PY"
 REALPY=$(command -v python3)
 cat > "$PY/python3" <<EOS
 #!/bin/sh
 if [ "\$1" = -c ]; then shift; c=\$1; shift; exec "$REALPY" -c "import sys; sys.version_info=(3,8,10); \$c" "\$@"; fi
-exec "$REALPY" "\$@"
+echo "host python3 used: \$*" >&2; exit 99
 EOS
 chmod +x "$PY/python3"
 rc=0; (cd "$G" && env -i HOME="$G/home" PATH="$PY:/usr/bin:/bin" bash "$D/run-tests.sh" --quick) > "$G/py38.out" 2>&1 || rc=$?
-grep -q '^WARN  [a-z]*-script .*host python3 is 3.8' "$G/py38.out" && ! grep -q '^FAIL  [a-z]*-script' "$G/py38.out" \
-    || gfail "python 3.8 not reported as WARN ($G/py38.out)"
-echo "ok    $(grep -m1 '^WARN  [a-z]*-script' "$G/py38.out")"
+grep -q '^PASS  [a-z]*-script .*python: bundled' "$G/py38.out" && ! grep -qE '^(FAIL|WARN)  [a-z]*-script' "$G/py38.out" \
+    || gfail "frama-c-script did not run on the bundled python ($G/py38.out)"
+echo "ok    $(grep -m1 '^PASS  [a-z]*-script' "$G/py38.out")"

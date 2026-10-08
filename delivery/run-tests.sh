@@ -245,15 +245,17 @@ EOS
 
     # 6. frama-c-script: its python helpers are found in the bundled share
     #    dir (python3 comes from the host)
-    local pyv; pyv=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)
-    if ! command -v python3 >/dev/null; then
-        result WARN "$m-script" "python3 not installed: frama-c-script commands need python >= 3.9"
-    elif ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
-        result WARN "$m-script" "host python3 is $pyv: frama-c-script commands need python >= 3.9"
+    #    (bundled python, or host python3 >= 3.10 when the bundle has none)
+    local pyv bundled_py=""; pyv=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)
+    "$fc" --fcai-run sh -c 'test -x "$FCAI_ROOT/usr/lib/fcai-python/bin/python3"' 2>/dev/null && bundled_py=yes
+    if [ -z "$bundled_py" ] && ! command -v python3 >/dev/null; then
+        result WARN "$m-script" "no bundled python and no host python3: frama-c-script commands need python >= 3.10"
+    elif [ -z "$bundled_py" ] && ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+        result WARN "$m-script" "no bundled python, host python3 is $pyv: frama-c-script commands need python >= 3.10"
     elif runl "$m-script-help" "$fc" frama-c-script help \
             && runl "$m-script" "$fc" frama-c-script find-fun main "$TESTS" \
             && grep -q 'eva\.c' "$LOGS/$m-script.log"; then
-        result PASS "$m-script" "frama-c-script find-fun found main in tests/eva.c"
+        result PASS "$m-script" "frama-c-script find-fun found main in tests/eva.c (python: $([ -n "$bundled_py" ] && echo bundled || echo "host $pyv"))"
     else result FAIL "$m-script" "frama-c-script help / find-fun failed (see $m-script* logs)"; fi
 
     # 6. Why3 prover detection as seen from WP

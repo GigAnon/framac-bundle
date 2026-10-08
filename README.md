@@ -1,6 +1,6 @@
 # Relocatable, offline Frama-C bundle (AppImage)
 
-These scripts build Frama-C, with its plug-ins statically linked into one executable, together with Ivette (the Electron GUI, built from the Frama-C sources), Why3, Z3 4.13.0, CVC4 1.8, cvc5 1.2.1, Alt-Ergo 2.6.2 and a C preprocessor. The result is a single AppImage that:
+These scripts build Frama-C, with its plug-ins statically linked into one executable, together with Ivette (the Electron GUI, built from the Frama-C sources), `frama-c-script` with a bundled Python 3.12 for its helpers, Why3, Z3 4.13.0, CVC4 1.8, cvc5 1.2.1, Alt-Ergo 2.6.2 and a C preprocessor. The result is a single AppImage that:
 
 * runs from any directory,
 * needs no network access,

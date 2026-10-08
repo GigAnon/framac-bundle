@@ -42,6 +42,11 @@ SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 # ivette/ directory of the Frama-C sources with Node.js, or taken from
 # IVETTE_PREBUILT (an Ivette AppImage or an unpacked Electron app directory)
 : "${WITH_IVETTE:=1}"
+# Python for frama-c-script's helpers (Frama-C 33 needs python >= 3.10; RHEL 9
+# has 3.9): a relocatable CPython from python-build-standalone (glibc >= 2.17)
+: "${WITH_PYTHON:=1}"
+: "${PYTHON_URL:=https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.12.14%2B20260924-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz}"
+: "${PYTHON_SHA256:=269b2c99e4db15b242bf01832f4fea1e8f1a664f273cff519393f296e9820b41}"
 # third-party Frama-C plug-ins from opam, built inside the Frama-C source tree
 # (so they are linked statically like the others); space-separated opam
 # package.version list
@@ -80,8 +85,7 @@ fi
 
 APT_PACKAGES="build-essential m4 pkg-config unzip curl ca-certificates git patchelf file
 python3 binutils xz-utils bzip2 strace libgmp-dev zlib1g-dev libffi-dev graphviz autoconf time
-desktop-file-utils
-python3.9"
+desktop-file-utils"
 # to run Ivette (Electron) in the self-test, under Xvfb
 APT_PACKAGES_IVETTE="xvfb xauth libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libxtst6 libatk-bridge2.0-0
 libdrm2 libxkbfile1 libsecret-1-0 libnotify4 libxshmfence1"
@@ -541,6 +545,28 @@ set WITH_IVETTE=0 to skip, or IVETTE_PREBUILT=<Ivette AppImage> to import one"
     cp "$APPDIR"/usr/lib/ivette/LICENSE* "$APPDIR/usr/share/fcai/licenses/ivette/" 2>/dev/null || true
 fi
 
+# ------------------------------------------------- 8c. Python (frama-c-script)
+# after bundle_libs on purpose: CPython carries its own $ORIGIN/../lib RPATH
+rm -rf "$APPDIR/usr/lib/fcai-python"
+if [ "$WITH_PYTHON" = 1 ]; then
+    say "bundled Python (frama-c-script helpers)"
+    fetch "$PYTHON_URL" "$PYTHON_SHA256" "$DL/python-standalone.tar.gz"
+    tmp=$(mktemp -d "$BUILD_ROOT/py.XXXXXX")
+    tar xzf "$DL/python-standalone.tar.gz" -C "$tmp"
+    mv "$tmp/python" "$APPDIR/usr/lib/fcai-python"; rmdir "$tmp"
+    P="$APPDIR/usr/lib/fcai-python"
+    # trim what frama-c-script never needs
+    rm -rf "$P/include" "$P/share" "$P/lib/pkgconfig" "$P"/lib/python3.*/{test,idlelib,tkinter,turtledemo,ensurepip,lib2to3} \
+           "$P"/lib/python3.*/site-packages/pip* "$P"/lib/python3.*/config-* "$P"/lib/libtcl* "$P"/lib/libtk* \
+           "$P"/lib/tcl* "$P"/lib/tk* "$P"/lib/itcl* "$P"/lib/thread* "$P"/bin/{idle*,pip*,2to3*,pydoc*,*-config}
+    find "$P" -name __pycache__ -prune -exec rm -rf {} +
+    "$P/bin/python3" -c 'import sys, json, re, subprocess, argparse, pathlib; assert sys.version_info >= (3, 10); print("bundled python", sys.version.split()[0])' \
+        || die "bundled Python does not run"
+    mkdir -p "$APPDIR/usr/share/fcai/licenses/python"
+    cp "$P"/lib/python3.*/LICENSE.txt "$APPDIR/usr/share/fcai/licenses/python/" 2>/dev/null || true
+    echo "bundled python: $(du -sh "$P" | cut -f1)"
+fi
+
 # -------------------------------------------------------- 9. build-info
 say "build info"
 glibc_floor=$(find "$APPDIR" -path "$APPDIR/usr/lib/ivette" -prune -o -type f -exec sh -c 'head -c4 "$1" | grep -q ELF && objdump -T "$1" 2>/dev/null' _ {} \; \
@@ -560,6 +586,7 @@ ver() { "$APPDIR/usr/bin/$1" --version 2>&1 | head -n1; }
     fi
     for p in $PROVERS; do echo "PROVER_$(echo "$p" | tr a-z- A-Z_)=$(ver "$p")"; done
     echo "PREPROCESSOR=$("$CPPROOT/bin/gcc" --version | head -n1)"
+    if [ -x "$APPDIR/usr/lib/fcai-python/bin/python3" ]; then echo "PYTHON=$("$APPDIR/usr/lib/fcai-python/bin/python3" --version 2>&1)"; else echo "PYTHON=host"; fi
     echo "PLUGINS=$(grep -oE '^ *[A-Za-z][A-Za-z0-9_-]*' "$LOGDIR/plugins.txt" | tr -s ' \n' ' ' | sed 's/^ //')"
     echo "GLIBC_REQUIRED=$glibc_floor"
     if [ -d "$APPDIR/usr/lib/ivette" ]; then
@@ -590,14 +617,7 @@ if [ -z "${SKIP_SELFTEST:-}" ]; then
     say "self-test on the AppDir"
     ST=$(mktemp -d "${TMPDIR:-/tmp}/fcai-selftest.XXXXXX")
     st_rc=0
-    # frama-c-script's helpers need python >= 3.9 (focal: python3 = 3.8):
-    # give the self-test a python3 -> python3.9 shim when it exists
-    st_path=/usr/local/bin:/usr/bin:/bin
-    if command -v python3.9 >/dev/null 2>&1; then
-        mkdir -p "$BUILD_ROOT/py39"; ln -sfn "$(command -v python3.9)" "$BUILD_ROOT/py39/python3"
-        st_path="$BUILD_ROOT/py39:$st_path"
-    fi
-    (cd "$ST" && env PATH="$st_path" bash "$SRC_DIR/delivery/run-tests.sh" "$APPDIR") || st_rc=$?
+    (cd "$ST" && env PATH=/usr/local/bin:/usr/bin:/bin bash "$SRC_DIR/delivery/run-tests.sh" "$APPDIR") || st_rc=$?
     rep=$(ls -1 "$ST"/fcai-test-report-*.txt 2>/dev/null | head -n1 || true)
     if [ -n "$rep" ]; then cp "$rep" "$LOGDIR/"; fi
     rm -rf "$ST"
