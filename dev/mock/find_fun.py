@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# MOCK share/analysis-scripts/find_fun.py
+# MOCK lib/analysis-scripts/find_fun.py
 import os, re, sys
 fun, dirs = sys.argv[1], sys.argv[2:] or ["."]
 pat = re.compile(r"\b%s\s*\(" % re.escape(fun))

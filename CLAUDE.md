@@ -39,7 +39,7 @@ Each step is stamped in `$BUILD_ROOT/stamps`; `FORCE=step` or `FORCE=all` reruns
 | 3 | `framac-build` | `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
 | 4 | `framac-static` | `lib/gen_static_exe.py` finds the `frama-c` executable stanza, reads the plug-in libraries from `_build/install/default/lib/frama-c/plugins/*/META`, and writes `src/init/boot/fcai_static/dune`. It then builds and runs `dune install --release --relocatable --prefix $STAGE`. |
 | 5 | downloads | Z3 4.13.0 (glibc-2.31 build), CVC4 1.8 (static, CVC4-archived repo), cvc5 1.2.1 (static), appimagetool 1.9.0, type2 runtime 20251108. All pinned by SHA256. |
-| 6 | AppDir | The static `frama-c`, `frama-c-script` (patched by `lib/patch_script.py`: each `$(... -print-share-path)` keeps its first line; original and patch report in `logs/frama-c-script.orig.txt` / `frama-c-script-patch.txt`), `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), `bundle_libs.py` (pinned static patchelf 0.18.0; executables get a relative DT_RPATH, copied libraries are **not modified**, every patched file is checked for PT_LOAD alignment, and `ldd` errors fail the build), and the `usr$STAGE → usr` symlink. |
+| 6 | AppDir | The static `frama-c`, `frama-c-script` (patched by `lib/patch_script.py`: each `$(... -print-share-path/-print-lib-path)` keeps its first line; original and patch report in `logs/`) + its helpers `usr/lib/frama-c/lib` (analysis-scripts, make_machdep), `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), `bundle_libs.py` (pinned static patchelf 0.18.0; executables get a relative DT_RPATH, copied libraries are **not modified**, every patched file is checked for PT_LOAD alignment, and `ldd` errors fail the build), and the `usr$STAGE → usr` symlink. |
 | 7 | relocation check | Writes `usr/share/fcai/dune-dir-locations`. Moves a copy; **every** `-print-share-path` entry must exist and contain `libc/`. Parses a C file with `#include`s while the original AppDir is moved away. Runs `-plugins`. |
 | 8 | why3.conf template | `why3 config detect` against the bundled provers (`PATH=usr/bin` only). The AppDir path is replaced by `@APPDIR@`, and `datadir`/`libdir` lines are dropped. |
 | 8b | Ivette | Node 22.22.2 (checked against nodejs.org SHASUMS) + corepack/yarn 1. Runs `make -C ivette api` then `make -C ivette dist`. The resulting `dist/linux-unpacked` is imported; `IVETTE_PREBUILT` overrides. |
@@ -87,7 +87,13 @@ Do not "fix" these back. Each one was observed in a real log.
 - **First green `ubuntu:20.04` self-test (2026-10-05).** It reports `GLIBC_REQUIRED=2.29` and `GLIBC_REQUIRED_IVETTE=2.25`, so RHEL 9 (2.34) is covered. Node 22 / electron-builder and the gcc 9.4 preprocessor work on focal. WP gives the same counts as on 22.04 (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50) and `wp-negative` gives 3/4. The only WARN is `reloc-spaces`, which is expected. `offline` SKIPs in the container.
 - **glibc floor = the build image's glibc.** The first delivered bundle was built on `ubuntu:22.04`; on RHEL 9.8 (glibc 2.34) it failed with `GLIBC_2.35 not found`. The files built in the image (`frama-c`, `gcc-real`/`cc1`, `why3server`, the copied libgmp/libstdc++) carry its glibc. Z3 (glibc-2.31 build) and CVC4/cvc5 (static) do not. So the default is now `ubuntu:20.04`, and three guards exist: the build-time `GLIBC_MAX` check, plus a clear refusal in `AppRun` (`check_glibc`), `run-tests.sh` (test `glibc`, stops early) and `install.sh`. `FCAI_SKIP_GLIBC_CHECK=1` bypasses them; `FCAI_HOST_GLIBC=X.Y` fakes the host version for tests.
 
-- **`frama-c-script` was missing** (owner, 2026-10-08): only `frama-c-static` was copied from the stage. It is now shipped and dispatched by `AppRun` with the bundle environment. `install.sh` links it, and `run-tests.sh` has a `<mode>-script` test (`help` + `find-fun main tests/`). python3 and make come from the host; without python3 the test WARNs. **Not yet verified on a real build:** the agent could not read the 33.0 script (frama-c.com is blocked). The patch assumes the script locates `analysis-scripts/` via `-print-share-path`. Check `logs/frama-c-script.orig.txt` from the next build and adjust.
+- **`frama-c-script` (33.0)** is `#!/bin/bash -eu`, `DIR=$(dirname "$0")`, and sets:
+  - `FRAMAC_LIB=$("$DIR/frama-c" -print-lib-path)`, which prints **one** line, the *baked* `<stage>/lib/frama-c/lib`;
+  - `FRAMAC_SHARE=$("$DIR/frama-c" -print-share-path)`, which prints two lines.
+  - Its commands run `$FRAMAC_LIB/analysis-scripts/*.py` directly (python3 from the host), plus `$FRAMAC_LIB/make_machdep/` and `$FRAMAC_SHARE/libc` / `machdeps`.
+  - First real build with it: `find-fun` failed, `.../usr//fcai-build/stage/lib/frama-c/lib/analysis-scripts/find_fun.py: No such file`. Only empty plug-in dirs had been copied from `stage/lib`.
+  - Now `stage/lib/frama-c/lib` is copied to `usr/lib/frama-c/lib`, where the `usr/<stage> → usr` alias makes the baked path valid, and `patch_script.py` takes the first line of both `-print-share-path` and `-print-lib-path`.
+  - Tests: `<mode>-script` (`help` + `find-fun main tests/`), WARN without python3. The mock uses the real 33.0 script (`dev/mock/frama-c-script`, LGPL).
 
 ## Design invariants
 
@@ -107,7 +113,7 @@ Do not "fix" these back. Each one was observed in a real log.
 - the Why3 CLI (`why3.in`);
 - `alt-ergo`;
 - Ivette (`mock-ivette.c`: an ELF that starts `frama-c -server-socket` from `PATH`; `IVETTE_MOCK=bad` gives one that never does);
-- `frama-c-script` (+ `share/analysis-scripts/find_fun.py`): finds its helpers through `$(frama-c -print-share-path)`, which yields two lines in the bundle and breaks unless patched;
+- `frama-c-script`: the real 33.0 script; `-print-lib-path` prints the baked entry, and `stage/lib/frama-c/lib/analysis-scripts/find_fun.py` is a mock that must be shipped;
 - `why3server`: an ELF depending on `libfcaiold.so.1` → `libfcaiold2.so.1`, both linked old-style (2 MiB `p_align`, no separate-code, like focal's libmpc), with an absolute RUNPATH into the build root. The mock frama-c runs it and requires `why3server-ok`, so library loading is exercised in every relocation test and under strace. The old library patching gives misaligned PT_LOADs on these files, which the new check rejects.
 
 The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the workspace glibc (2.38 in the agent workspace); it passes `GLIBC_MAX=<host glibc>` to the build. After the target run it also runs the **glibc scenarios**: with `FCAI_HOST_GLIBC=2.17`, `AppRun`, `run-tests.sh` and `install.sh` must refuse clearly, and a build with `GLIBC_MAX=2.17` must die and list the offending files.
@@ -116,7 +122,7 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 
 ## Open items / next steps
 
-1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). Since then, `frama-c-script` was added (mock only). Next: a rebuild, then check `logs/frama-c-script.orig.txt` / `-patch.txt` and the `dir-script` result, then `run-tests.sh` on RHEL 9.8.
+1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). The `frama-c-script` helpers were missing from the 2026-10-08 build; fixed, mock only. Next: a rebuild, expecting `dir-script` PASS, then `run-tests.sh` on RHEL 9.8.
 2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display. The target is RHEL 9.8 (glibc 2.34); the 22.04 build failed there on glibc.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);

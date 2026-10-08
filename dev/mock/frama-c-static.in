@@ -11,6 +11,7 @@ for ((i=0;i<${#args[@]};i++)); do a=${args[$i]}
     -server-socket) echo "[server] listening"; sleep 120; exit 0;;
     -version) echo "33.0 (Arsenic) [MOCK]"; exit 0;;
     -print-share-path) echo "$share"; echo "$baked"; exit 0;;
+    -print-lib-path) echo "$prefix/@STAGE@/lib/frama-c/lib"; exit 0;;   # real 33.0: baked entry only
     -plugins) printf 'Eva\nRteGen\nWP\n'; exit 0;;
     -wp-detect) grep -A3 partial_prover "$WHY3CONFIG" | sed -n 's/name = "\(.*\)"/[wp] Prover \1/p'; exit 0;;
     -wp) mode=wp;; -eva) mode=eva;;

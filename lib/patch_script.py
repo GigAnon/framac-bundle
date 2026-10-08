@@ -10,10 +10,10 @@ import sys
 src, dst = sys.argv[1], sys.argv[2]
 text = open(src).read()
 out, changed = [], 0
-pat = re.compile(r"-print-share-path(?!\s*\|\s*head)(?=[\s\"')`])")
+pat = re.compile(r"(-print-(?:share|lib)-path)(?!\s*\|\s*head)(?=[\s\"')`])")
 for n, line in enumerate(text.splitlines(True), 1):
-    if "-print-share-path" in line and ("$(" in line or "`" in line) and not line.lstrip().startswith("#"):
-        new = pat.sub("-print-share-path | head -n 1", line)
+    if re.search(r"-print-(share|lib)-path", line) and ("$(" in line or "`" in line) and not line.lstrip().startswith("#"):
+        new = pat.sub(r"\1 | head -n 1", line)
         if new != line:
             changed += 1
             print("patched %d: %s" % (n, new.rstrip()))
@@ -22,4 +22,4 @@ for n, line in enumerate(text.splitlines(True), 1):
         print("      %d: %s" % (n, line.rstrip()))
     out.append(line)
 open(dst, "w").write("".join(out))
-print("frama-c-script: %d -print-share-path substitution(s) patched" % changed)
+print("frama-c-script: %d -print-share/lib-path substitution(s) patched" % changed)

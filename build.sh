@@ -278,6 +278,14 @@ cp "$STAGE/bin/frama-c-script" "$LOGDIR/frama-c-script.orig.txt"
 python3 "$SRC_DIR/lib/patch_script.py" "$STAGE/bin/frama-c-script" "$APPDIR/usr/bin/frama-c-script" \
     | tee "$LOGDIR/frama-c-script-patch.txt"
 chmod 755 "$APPDIR/usr/bin/frama-c-script"
+# its helpers (analysis-scripts/*.py, make_machdep/) live in the dune-site
+# 'lib' dir, $(frama-c -print-lib-path) = <baked stage>/lib/frama-c/lib,
+# reached through the usr/<stage> -> usr alias
+[ -d "$STAGE/lib/frama-c/lib/analysis-scripts" ] || die "no $STAGE/lib/frama-c/lib/analysis-scripts (frama-c-script helpers)"
+mkdir -p "$APPDIR/usr/lib/frama-c"
+cp -a "$STAGE/lib/frama-c/lib" "$APPDIR/usr/lib/frama-c/"
+echo "frama-c lib dir: $(du -sh "$APPDIR/usr/lib/frama-c/lib" | cut -f1), $(find "$APPDIR/usr/lib/frama-c/lib" -type f | wc -l) files" \
+    | tee -a "$LOGDIR/frama-c-script-patch.txt"
 # empty plug-in site directories (nothing to autoload, but the dirs exist)
 for d in "$STAGE"/lib/*/plugins*; do
     if [ -d "$d" ]; then mkdir -p "$APPDIR/usr/lib/${d#"$STAGE/lib/"}"; fi

@@ -62,7 +62,8 @@ for h in stdio.h string.h stdint.h limits.h stdlib.h; do
 done
 
 install -m 755 "$MOCKSRC/frama-c-script" "$STAGE/bin/frama-c-script"
-install -D -m 644 "$MOCKSRC/find_fun.py" "$STAGE/share/frama-c/share/analysis-scripts/find_fun.py"
+# the real 33.0 frama-c-script runs $(frama-c -print-lib-path)/analysis-scripts/*.py
+install -D -m 755 "$MOCKSRC/find_fun.py" "$STAGE/lib/frama-c/lib/analysis-scripts/find_fun.py"
 
 # --- fake Why3 CLI / data / libdir, fake alt-ergo ------------------------------
 mkdir -p "$W/why3data/drivers" "$W/why3lib"
