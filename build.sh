@@ -679,7 +679,7 @@ APPIMAGE_EXTRACT_AND_RUN=1 "$AI" -version
 
 # -------------------------------------------------------- 12. delivery
 say "delivery archive"
-install -m 755 "$SRC_DIR/delivery/install.sh" "$SRC_DIR/delivery/run-tests.sh" "$DIST/"
+install -m 755 "$SRC_DIR/delivery/install.sh" "$SRC_DIR/delivery/run-tests.sh" "$SRC_DIR/delivery/setup_completion.sh" "$DIST/"
 cp "$SRC_DIR"/delivery/tests/* "$DIST/tests/"
 cp "$SRC_DIR/delivery/README-offline.md" "$DIST/README.md"
 cp "$APPDIR/usr/share/fcai/build-info" "$DIST/build-info.txt"

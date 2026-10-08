@@ -106,7 +106,11 @@ Do not "fix" these back. Each one was observed in a real log.
 - **Bash completion** (owner, 2026-10-08: "use autocomplete_frama-c from outside the AppImage, or make an improved one"). The upstream `share/autocomplete_frama-c` still ships, unused; ours is generated.
   - **Self-contained:** everything is baked in, so completing never starts frama-c (an AppImage mount per TAB) and the file works outside the AppImage.
   - **What it completes:** options, `-no-` opposites, `-machdep` values, comma lists for `-wp-prover`, file arguments, C sources, and `frama-c-script` commands.
-  - **Delivery:** `AppRun --fcai-completion` prints it. `install.sh` writes it to `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/frama-c`, with `frama-c-script` and `ivette` symlinked to it; `--no-completion` skips this, and `--uninstall` removes only files marked `# fcai-completion`.
+  - **Delivery** (owner: "install.sh must not copy it into the user's home, the install user is often root"):
+    - `install.sh` writes nothing outside DIR/BIN. It stores `DIR/frama-c-completion.bash` (from `--fcai-completion`) and `DIR/setup_completion.sh`, and links the latter into BIN.
+    - Each user runs `setup_completion.sh`, which finds the file next to itself through `readlink -f`. It symlinks it into `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/frama-c`, plus `frama-c-script` and `ivette` → `frama-c`. Without bash-completion it adds a marked source line to `~/.bashrc` (`--no-bashrc` skips this).
+    - Its other modes are `--system` (root, the system completions directory), `--uninstall` and `--print`.
+    - As root, `install.sh` now defaults to `/opt/frama-c-VERSION` and `/usr/local/bin`.
   - **Test:** `completion` drives `_fcai_frama_c` / `_fcai_frama_c_script` with `COMP_WORDS`.
   - **Not yet verified on a real build:** the parser assumes Frama-C's help format ("-opt <arg>" at column 0, "(opposite option is -no-x)", `-plugins` lines ending in "(-x-h)"). Check `logs/completion-src/` and `completion.txt` (option counts) from the next build.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
@@ -134,6 +138,8 @@ Do not "fix" these back. Each one was observed in a real log.
 - `why3server`: an ELF depending on `libfcaiold.so.1` → `libfcaiold2.so.1`, both linked old-style (2 MiB `p_align`, no separate-code, like focal's libmpc), with an absolute RUNPATH into the build root. The mock frama-c runs it and requires `why3server-ok`, so library loading is exercised in every relocation test and under strace. The old library patching gives misaligned PT_LOADs on these files, which the new check rejects.
 
 The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the workspace glibc (2.38 in the agent workspace); it passes `GLIBC_MAX=<host glibc>` to the build. After the target run it also runs the **glibc scenarios**: with `FCAI_HOST_GLIBC=2.17`, `AppRun`, `run-tests.sh` and `install.sh` must refuse clearly, and a build with `GLIBC_MAX=2.17` must die and list the offending files.
+
+The last scenarios check that `install.sh` leaves the installer's `$HOME` empty, and that another user's `setup_completion.sh` installs links that complete, then uninstalls them.
 
 It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, with real Z3/CVC4/cvc5, real gcc relocation and real appimagetool. Expect: build passes, ~108 PASS on the target run, no FAIL, then `glibc scenarios: all ok`. **When a real build reveals a new behaviour, encode it in the mock first.**
 

@@ -45,7 +45,7 @@ tar xf frama-c-33.0-offline-x86_64.tar && cd frama-c-33.0-offline-x86_64
 ./install.sh            # ~/.local/opt + symlinks in ~/.local/bin
 ```
 
-The installed commands are `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc4`, `cvc5` and `alt-ergo`. `install.sh` also installs the bash completion into `~/.local/share/bash-completion/completions/`. Without installing, `source <(./Frama-C-*.AppImage --fcai-completion)` loads it. `README.md` inside the archive has the details: `--dir`, `--bin`, `--extract` for machines without FUSE, and `--uninstall`.
+The installed commands are `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc4`, `cvc5` and `alt-ergo`. As root, `install.sh` defaults to `/opt` and `/usr/local/bin`. It writes nothing into any home directory. Each user who wants bash completion runs `setup_completion.sh` (installed next to `frama-c`); root can enable it for everyone with `setup_completion.sh --system`. Without installing, `source <(./Frama-C-*.AppImage --fcai-completion)` loads it. `README.md` inside the archive has the details: `--dir`, `--bin`, `--extract` for machines without FUSE, and `--uninstall`.
 
 ## How path independence is achieved (and checked)
 
@@ -82,6 +82,7 @@ appdir/AppRun             multi-call entry point (frama-c, frama-c-script, ivett
 appdir/fcai-wrappers/     'frama-c' as seen by Ivette
 delivery/install.sh       offline installer
 delivery/run-tests.sh     offline acceptance tests
+delivery/setup_completion.sh  per-user (or --system) bash completion setup
 delivery/README-offline.md  README shipped in the archive
 delivery/tests/*.c        WP / Eva samples
 dev/mock/                 mocked Frama-C build for development (see below)

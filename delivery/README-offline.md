@@ -19,9 +19,9 @@ tar xf frama-c-<version>-offline-x86_64.tar
 cd frama-c-<version>-offline-x86_64
 sha256sum -c SHA256SUMS
 ./install.sh                       # ~/.local/opt/frama-c-<version> + links in ~/.local/bin
+                                   # (as root: /opt/frama-c-<version> + /usr/local/bin)
 ./install.sh --dir /opt/fc --bin /usr/local/bin   # anywhere else
 ./install.sh --extract             # unpacked directory instead of the AppImage
-./install.sh --no-completion       # do not install the bash completion
 ./install.sh --uninstall           # removes what was installed
 ```
 
@@ -44,7 +44,15 @@ The installer creates symlinks `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc
 
 ## Bash completion
 
-`install.sh` installs a completion for `frama-c`, `ivette` and `frama-c-script` into `~/.local/share/bash-completion/completions/`. New shells load it when the bash-completion package is installed. Otherwise, add the line that `install.sh` prints to `~/.bashrc`. Without installing anything:
+`install.sh` does not touch anyone's home directory. Each user who wants completion for `frama-c`, `ivette` and `frama-c-script` runs:
+
+```sh
+setup_completion.sh                # links it into ~/.local/share/bash-completion/completions
+setup_completion.sh --uninstall
+sudo setup_completion.sh --system  # for all users, in bash-completion's system directory
+```
+
+New shells load it through bash-completion. If bash-completion is not installed, `setup_completion.sh` adds one marked line to `~/.bashrc`; `--no-bashrc` skips that, and `--uninstall` removes it. Without installing anything:
 
 ```sh
 source <(./Frama-C-*.AppImage --fcai-completion)

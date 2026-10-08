@@ -163,6 +163,26 @@ rc=0
 echo "ok    build stops: $(grep -o 'GLIBC_REQUIRED=[0-9.]* > GLIBC_MAX=2.17' "$G/build.out" | head -n1), files: $(tr -d ' ' < "$G/dist/logs/glibc-too-new.txt" | tr '\n' ' ')"
 echo "glibc scenarios: all ok"
 
+# --- install.sh writes nothing in the installer's home; another user then
+#     enables completion with setup_completion.sh (owner: install user is root)
+echo "==> install.sh + setup_completion.sh by another user"
+I="$W/inst"; rm -rf "$I"; mkdir -p "$I/root-home" "$I/user-home"
+env -i HOME="$I/root-home" PATH=/usr/bin:/bin sh "$D/install.sh" --extract --dir "$I/opt" --bin "$I/bin" > "$I/install.out" 2>&1 \
+    || gfail "install.sh failed ($I/install.out)"
+[ -z "$(find "$I/root-home" -mindepth 1 | head -n1)" ] || gfail "install.sh wrote into the installer's HOME: $(find "$I/root-home" -mindepth 1 | head -n3)"
+[ -x "$I/bin/setup_completion.sh" ] && [ -f "$I/opt/frama-c-completion.bash" ] || gfail "setup_completion.sh / completion file not installed"
+env -i HOME="$I/user-home" PATH="$I/bin:/usr/bin:/bin" setup_completion.sh > "$I/setup.out" 2>&1 || gfail "setup_completion.sh failed ($I/setup.out)"
+cdir="$I/user-home/.local/share/bash-completion/completions"
+[ "$(readlink "$cdir/frama-c")" = "$I/opt/frama-c-completion.bash" ] && [ -L "$cdir/ivette" ] && [ -L "$cdir/frama-c-script" ] \
+    || gfail "per-user completion links missing ($I/setup.out)"
+got=$(env -i HOME="$I/user-home" PATH="$I/bin:/usr/bin:/bin" bash -c '. ~/.local/share/bash-completion/completions/frama-c
+    COMP_WORDS=(frama-c -wp-r); COMP_CWORD=1; _fcai_frama_c; echo "${COMPREPLY[@]}"')
+case " $got " in *" -wp-rte "*) ;; *) gfail "completion via the user's link: '$got'" ;; esac
+env -i HOME="$I/user-home" PATH="$I/bin:/usr/bin:/bin" setup_completion.sh --uninstall > "$I/unsetup.out" 2>&1
+[ ! -e "$cdir/frama-c" ] && [ ! -L "$cdir/ivette" ] && ! grep -q 'setup_completion.sh' "$I/user-home/.bashrc" 2>/dev/null \
+    || gfail "setup_completion.sh --uninstall left files ($I/unsetup.out)"
+echo "ok    install.sh leaves HOME alone; setup_completion.sh per user: install, complete, uninstall"
+
 # --- host python3 too old (real: focal 3.8, RHEL 9 3.9; the helpers need 3.10)
 # frama-c-script must use the BUNDLED python: the host python3 stub reports
 # 3.8 and fails if it is asked to run a script

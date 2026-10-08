@@ -4,17 +4,19 @@
 #   ./install.sh [--dir DIR] [--bin BINDIR] [--extract]
 #   ./install.sh --uninstall [--dir DIR] [--bin BINDIR]
 #
-#   --dir DIR      where the bundle goes      (default: ~/.local/opt/frama-c-VERSION)
-#   --bin BINDIR   where command symlinks go  (default: ~/.local/bin)
+#   --dir DIR      where the bundle goes      (default: ~/.local/opt/frama-c-VERSION,
+#                                              as root: /opt/frama-c-VERSION)
+#   --bin BINDIR   where command symlinks go  (default: ~/.local/bin, as root: /usr/local/bin)
 #   --extract      install the extracted directory instead of the AppImage
 #                  (needed when FUSE is unavailable; automatic in that case)
 #   --appimage     force AppImage mode even if FUSE seems unavailable
 #   --no-links     do not create symlinks
-#   --no-completion  do not install the bash completion
-#                  (default: ${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions)
 #
 # Commands linked into BINDIR: frama-c, frama-c-script, ivette, z3, cvc4, and cvc5 /
-# alt-ergo when bundled.  Everything is relative to DIR: moving DIR only requires
+# alt-ergo when bundled, plus setup_completion.sh: nothing is written to any
+# user's home besides DIR/BINDIR; each user who wants bash completion runs
+# setup_completion.sh (DIR/frama-c-completion.bash is linked from their
+# ~/.local/share/bash-completion; root can use --system).  Everything is relative to DIR: moving DIR only requires
 # re-running the installer (or fixing the symlinks).
 set -eu
 
@@ -23,10 +25,15 @@ APPIMAGE=$(ls -1 "$HERE"/*.AppImage 2>/dev/null | grep -iv ivette | head -n1 || 
 [ -n "$APPIMAGE" ] || { echo "no Frama-C *.AppImage next to install.sh" >&2; exit 1; }
 BASE=$(basename "$APPIMAGE" .AppImage)          # e.g. Frama-C-33.0-x86_64
 VERSION=$(echo "$BASE" | sed -n 's/^Frama-C-\([^-]*\)-.*/\1/p')
-DIR="$HOME/.local/opt/frama-c-${VERSION:-bundle}"
-BIN="$HOME/.local/bin"
-MODE=auto LINKS=1 UNINSTALL=0 COMPLETION=1
-COMPDIR="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
+if [ "$(id -u)" = 0 ]; then
+    # root installs for everybody, never into /root
+    DIR="/opt/frama-c-${VERSION:-bundle}"
+    BIN="/usr/local/bin"
+else
+    DIR="$HOME/.local/opt/frama-c-${VERSION:-bundle}"
+    BIN="$HOME/.local/bin"
+fi
+MODE=auto LINKS=1 UNINSTALL=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -35,9 +42,8 @@ while [ $# -gt 0 ]; do
         --extract) MODE=extract ;;
         --appimage) MODE=appimage ;;
         --no-links) LINKS=0 ;;
-        --no-completion) COMPLETION=0 ;;
         --uninstall) UNINSTALL=1 ;;
-        -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
     shift
@@ -48,7 +54,7 @@ case "$DIR" in
     *" "*) echo "warning: DIR contains spaces; this is not recommended" >&2 ;;
 esac
 
-CMDS="frama-c frama-c-script ivette z3 cvc4 cvc5 alt-ergo"
+CMDS="frama-c frama-c-script ivette z3 cvc4 cvc5 alt-ergo setup_completion.sh"
 
 if [ $UNINSTALL = 1 ]; then
     [ -d "$DIR" ] && DIR=$(cd "$DIR" && pwd)
@@ -58,13 +64,9 @@ if [ $UNINSTALL = 1 ]; then
             case "$(readlink "$l")" in "$DIR"/*) rm -f "$l"; echo "removed $l" ;; esac
         fi
     done
-    for c in frama-c frama-c-script ivette; do
-        f="$COMPDIR/$c"
-        if [ -L "$f" ] || { [ -f "$f" ] && head -n1 "$f" | grep -q '^# fcai-completion'; }; then
-            rm -f "$f"; echo "removed $f"
-        fi
-    done
     [ -d "$DIR" ] && rm -rf "$DIR" && echo "removed $DIR"
+    echo "note: users who ran setup_completion.sh keep dangling links in their"
+    echo "      bash-completion directory (setup_completion.sh --uninstall before, or rm them)"
     exit 0
 fi
 
@@ -114,17 +116,18 @@ if [ $LINKS = 1 ]; then
         *) echo "note: $BIN is not in PATH; add:  export PATH=\"$BIN:\$PATH\"" ;;
     esac
 fi
-if [ $COMPLETION = 1 ]; then
-    mkdir -p "$COMPDIR"
-    if "$TARGET" --fcai-completion > "$COMPDIR/frama-c.tmp" 2>/dev/null && head -n1 "$COMPDIR/frama-c.tmp" | grep -q '^# fcai-completion'; then
-        mv -f "$COMPDIR/frama-c.tmp" "$COMPDIR/frama-c"
-        # bash-completion loads completions by command name
-        ln -sfn frama-c "$COMPDIR/frama-c-script"; ln -sfn frama-c "$COMPDIR/ivette"
-        echo "completion: $COMPDIR/frama-c (+ frama-c-script, ivette)"
-        echo "           loaded by bash-completion in new shells; without it, add to ~/.bashrc:"
-        echo "           . $COMPDIR/frama-c"
-    else
-        rm -f "$COMPDIR/frama-c.tmp"; echo "note: no bash completion in this bundle"
+# bash completion: the script and its per-user setup tool go into DIR only
+if "$TARGET" --fcai-completion > "$DIR/frama-c-completion.bash.tmp" 2>/dev/null \
+        && head -n1 "$DIR/frama-c-completion.bash.tmp" | grep -q '^# fcai-completion'; then
+    mv -f "$DIR/frama-c-completion.bash.tmp" "$DIR/frama-c-completion.bash"
+    chmod 644 "$DIR/frama-c-completion.bash"
+    install -m 755 "$HERE/setup_completion.sh" "$DIR/setup_completion.sh"
+    if [ $LINKS = 1 ]; then
+        ln -sfn "$DIR/setup_completion.sh" "$BIN/setup_completion.sh"
+        echo "linked:    $BIN/setup_completion.sh"
     fi
+    echo "completion: each user runs 'setup_completion.sh' (root: 'setup_completion.sh --system' for everyone)"
+else
+    rm -f "$DIR/frama-c-completion.bash.tmp"; echo "note: no bash completion in this bundle"
 fi
 echo "check:     frama-c -version     (or: $TARGET -version)"
