@@ -64,6 +64,7 @@ done
 install -m 755 "$MOCKSRC/frama-c-script" "$STAGE/bin/frama-c-script"
 # the real 33.0 frama-c-script runs $(frama-c -print-lib-path)/analysis-scripts/*.py
 install -D -m 755 "$MOCKSRC/find_fun.py" "$STAGE/lib/frama-c/lib/analysis-scripts/find_fun.py"
+install -D -m 755 "$MOCKSRC/make_machdep.py" "$STAGE/lib/frama-c/lib/make_machdep/make_machdep.py"
 
 # --- fake Why3 CLI / data / libdir, fake alt-ergo ------------------------------
 mkdir -p "$W/why3data/drivers" "$W/why3lib"

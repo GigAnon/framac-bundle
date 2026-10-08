@@ -47,6 +47,11 @@ SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 : "${WITH_PYTHON:=1}"
 : "${PYTHON_URL:=https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.12.14%2B20260924-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz}"
 : "${PYTHON_SHA256:=269b2c99e4db15b242bf01832f4fea1e8f1a664f273cff519393f296e9820b41}"
+# PyYAML (make-machdep & co.), pure-Python part, from its git tag; the
+# commit hash is the pin
+: "${PYYAML_GIT:=https://github.com/yaml/pyyaml}"
+: "${PYYAML_TAG:=6.0.3}"
+: "${PYYAML_COMMIT:=49790e73684bebad1df05ef8d828fa12f685bffb}"
 # third-party Frama-C plug-ins from opam, built inside the Frama-C source tree
 # (so they are linked statically like the others); space-separated opam
 # package.version list
@@ -560,8 +565,21 @@ if [ "$WITH_PYTHON" = 1 ]; then
            "$P"/lib/python3.*/site-packages/pip* "$P"/lib/python3.*/config-* "$P"/lib/libtcl* "$P"/lib/libtk* \
            "$P"/lib/tcl* "$P"/lib/tk* "$P"/lib/itcl* "$P"/lib/thread* "$P"/bin/{idle*,pip*,2to3*,pydoc*,*-config}
     find "$P" -name __pycache__ -prune -exec rm -rf {} +
-    "$P/bin/python3" -c 'import sys, json, re, subprocess, argparse, pathlib; assert sys.version_info >= (3, 10); print("bundled python", sys.version.split()[0])' \
-        || die "bundled Python does not run"
+    # PyYAML, pure Python (no libyaml C extension: nothing to relink)
+    Y="$DL/pyyaml-$PYYAML_TAG"
+    if [ "$(git -C "$Y" rev-parse HEAD 2>/dev/null)" != "$PYYAML_COMMIT" ]; then
+        rm -rf "$Y"
+        git -c advice.detachedHead=false clone -q --depth 1 --branch "$PYYAML_TAG" "$PYYAML_GIT" "$Y"
+    fi
+    [ "$(git -C "$Y" rev-parse HEAD)" = "$PYYAML_COMMIT" ] || die "PyYAML $PYYAML_TAG is not commit $PYYAML_COMMIT"
+    site=$(echo "$P"/lib/python3.*/site-packages)
+    cp -r "$Y/lib/yaml" "$site/"
+    mkdir -p "$APPDIR/usr/share/fcai/licenses/pyyaml"; cp "$Y/LICENSE" "$APPDIR/usr/share/fcai/licenses/pyyaml/"
+    "$P/bin/python3" -I -c 'import sys, json, re, subprocess, argparse, pathlib, yaml
+assert sys.version_info >= (3, 10)
+assert yaml.safe_load("a: [1, 2]") == {"a": [1, 2]}
+print("bundled python", sys.version.split()[0], "+ PyYAML", yaml.__version__)' \
+        || die "bundled Python (or PyYAML) does not run"
     mkdir -p "$APPDIR/usr/share/fcai/licenses/python"
     cp "$P"/lib/python3.*/LICENSE.txt "$APPDIR/usr/share/fcai/licenses/python/" 2>/dev/null || true
     echo "bundled python: $(du -sh "$P" | cut -f1)"
@@ -586,7 +604,7 @@ ver() { "$APPDIR/usr/bin/$1" --version 2>&1 | head -n1; }
     fi
     for p in $PROVERS; do echo "PROVER_$(echo "$p" | tr a-z- A-Z_)=$(ver "$p")"; done
     echo "PREPROCESSOR=$("$CPPROOT/bin/gcc" --version | head -n1)"
-    if [ -x "$APPDIR/usr/lib/fcai-python/bin/python3" ]; then echo "PYTHON=$("$APPDIR/usr/lib/fcai-python/bin/python3" --version 2>&1)"; else echo "PYTHON=host"; fi
+    if [ -x "$APPDIR/usr/lib/fcai-python/bin/python3" ]; then echo "PYTHON=$("$APPDIR/usr/lib/fcai-python/bin/python3" --version 2>&1) + PyYAML $PYYAML_TAG (pure Python)"; else echo "PYTHON=host"; fi
     echo "PLUGINS=$(grep -oE '^ *[A-Za-z][A-Za-z0-9_-]*' "$LOGDIR/plugins.txt" | tr -s ' \n' ' ' | sed 's/^ //')"
     echo "GLIBC_REQUIRED=$glibc_floor"
     if [ -d "$APPDIR/usr/lib/ivette" ]; then

@@ -257,6 +257,15 @@ EOS
             && grep -q 'eva\.c' "$LOGS/$m-script.log"; then
         result PASS "$m-script" "frama-c-script find-fun found main in tests/eva.c (python: $([ -n "$bundled_py" ] && echo bundled || echo "host $pyv"))"
     else result FAIL "$m-script" "frama-c-script help / find-fun failed (see $m-script* logs)"; fi
+    #    make-machdep imports yaml (PyYAML: bundled with the bundled python)
+    if [ -n "$bundled_py" ] || python3 -c 'import sys, yaml; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+        if runl "$m-script-yaml" "$fc" frama-c-script make-machdep --help \
+                && ! grep -qE 'ModuleNotFoundError|ImportError|Traceback' "$LOGS/$m-script-yaml.log"; then
+            result PASS "$m-script-yaml" "frama-c-script make-machdep --help (PyYAML importable)"
+        else result FAIL "$m-script-yaml" "frama-c-script make-machdep --help failed (see $m-script-yaml log)"; fi
+    else
+        result WARN "$m-script-yaml" "no bundled python and no host python3 >= 3.10 with PyYAML: make-machdep unavailable"
+    fi
 
     # 6. Why3 prover detection as seen from WP
     runl "$m-wp-detect" "$fc" frama-c -wp-detect; wd=$?
