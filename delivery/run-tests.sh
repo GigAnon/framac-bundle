@@ -245,8 +245,11 @@ EOS
 
     # 6. frama-c-script: its python helpers are found in the bundled share
     #    dir (python3 comes from the host)
+    local pyv; pyv=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)
     if ! command -v python3 >/dev/null; then
-        result WARN "$m-script" "python3 not installed: frama-c-script commands need it"
+        result WARN "$m-script" "python3 not installed: frama-c-script commands need python >= 3.9"
+    elif ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+        result WARN "$m-script" "host python3 is $pyv: frama-c-script commands need python >= 3.9"
     elif runl "$m-script-help" "$fc" frama-c-script help \
             && runl "$m-script" "$fc" frama-c-script find-fun main "$TESTS" \
             && grep -q 'eva\.c' "$LOGS/$m-script.log"; then

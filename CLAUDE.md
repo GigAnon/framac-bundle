@@ -93,7 +93,10 @@ Do not "fix" these back. Each one was observed in a real log.
   - Its commands run `$FRAMAC_LIB/analysis-scripts/*.py` directly (python3 from the host), plus `$FRAMAC_LIB/make_machdep/` and `$FRAMAC_SHARE/libc` / `machdeps`.
   - First real build with it: `find-fun` failed, `.../usr//fcai-build/stage/lib/frama-c/lib/analysis-scripts/find_fun.py: No such file`. Only empty plug-in dirs had been copied from `stage/lib`.
   - Now `stage/lib/frama-c/lib` is copied to `usr/lib/frama-c/lib`, where the `usr/<stage> → usr` alias makes the baked path valid, and `patch_script.py` takes the first line of both `-print-share-path` and `-print-lib-path`.
-  - Tests: `<mode>-script` (`help` + `find-fun main tests/`), WARN without python3. The mock uses the real 33.0 script (`dev/mock/frama-c-script`, LGPL).
+  - Second real build: the helpers were found, but `function_finder.py` failed with `def compute_newline_offsets(file_lines: list[str])` → `TypeError: 'type' object is not subscriptable`. **The 33.0 analysis scripts need Python ≥ 3.9.** Focal's python3 is 3.8; RHEL 9's is 3.9.
+    - `run-tests.sh` now WARNs when host python3 is < 3.9 (or missing) instead of FAILing.
+    - The build installs focal's `python3.9` and gives the self-test a `python3 → python3.9` shim, so `frama-c-script` is still really exercised.
+  - Tests: `<mode>-script` (`help` + `find-fun main tests/`). The mock uses the real 33.0 script (`dev/mock/frama-c-script`, LGPL).
 
 ## Design invariants
 
@@ -113,7 +116,7 @@ Do not "fix" these back. Each one was observed in a real log.
 - the Why3 CLI (`why3.in`);
 - `alt-ergo`;
 - Ivette (`mock-ivette.c`: an ELF that starts `frama-c -server-socket` from `PATH`; `IVETTE_MOCK=bad` gives one that never does);
-- `frama-c-script`: the real 33.0 script; `-print-lib-path` prints the baked entry, and `stage/lib/frama-c/lib/analysis-scripts/find_fun.py` is a mock that must be shipped;
+- `frama-c-script`: the real 33.0 script; `-print-lib-path` prints the baked entry, and `stage/lib/frama-c/lib/analysis-scripts/find_fun.py` is a mock that must be shipped (it uses 3.9-only syntax). A final scenario runs `run-tests.sh --quick` with a `python3` stub reporting 3.8 and expects a `*-script` WARN;
 - `why3server`: an ELF depending on `libfcaiold.so.1` → `libfcaiold2.so.1`, both linked old-style (2 MiB `p_align`, no separate-code, like focal's libmpc), with an absolute RUNPATH into the build root. The mock frama-c runs it and requires `why3server-ok`, so library loading is exercised in every relocation test and under strace. The old library patching gives misaligned PT_LOADs on these files, which the new check rejects.
 
 The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the workspace glibc (2.38 in the agent workspace); it passes `GLIBC_MAX=<host glibc>` to the build. After the target run it also runs the **glibc scenarios**: with `FCAI_HOST_GLIBC=2.17`, `AppRun`, `run-tests.sh` and `install.sh` must refuse clearly, and a build with `GLIBC_MAX=2.17` must die and list the offending files.
@@ -122,7 +125,7 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 
 ## Open items / next steps
 
-1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). The `frama-c-script` helpers were missing from the 2026-10-08 build; fixed, mock only. Next: a rebuild, expecting `dir-script` PASS, then `run-tests.sh` on RHEL 9.8.
+1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). `frama-c-script`: the helpers are now found (real build); Python ≥ 3.9 handling is validated by the mock only. Next: a rebuild, expecting `dir-script` PASS with python3.9, then `run-tests.sh` on RHEL 9.8.
 2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display. The target is RHEL 9.8 (glibc 2.34); the 22.04 build failed there on glibc.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);

@@ -80,7 +80,8 @@ fi
 
 APT_PACKAGES="build-essential m4 pkg-config unzip curl ca-certificates git patchelf file
 python3 binutils xz-utils bzip2 strace libgmp-dev zlib1g-dev libffi-dev graphviz autoconf time
-desktop-file-utils"
+desktop-file-utils
+python3.9"
 # to run Ivette (Electron) in the self-test, under Xvfb
 APT_PACKAGES_IVETTE="xvfb xauth libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libxtst6 libatk-bridge2.0-0
 libdrm2 libxkbfile1 libsecret-1-0 libnotify4 libxshmfence1"
@@ -589,7 +590,14 @@ if [ -z "${SKIP_SELFTEST:-}" ]; then
     say "self-test on the AppDir"
     ST=$(mktemp -d "${TMPDIR:-/tmp}/fcai-selftest.XXXXXX")
     st_rc=0
-    (cd "$ST" && env PATH=/usr/local/bin:/usr/bin:/bin bash "$SRC_DIR/delivery/run-tests.sh" "$APPDIR") || st_rc=$?
+    # frama-c-script's helpers need python >= 3.9 (focal: python3 = 3.8):
+    # give the self-test a python3 -> python3.9 shim when it exists
+    st_path=/usr/local/bin:/usr/bin:/bin
+    if command -v python3.9 >/dev/null 2>&1; then
+        mkdir -p "$BUILD_ROOT/py39"; ln -sfn "$(command -v python3.9)" "$BUILD_ROOT/py39/python3"
+        st_path="$BUILD_ROOT/py39:$st_path"
+    fi
+    (cd "$ST" && env PATH="$st_path" bash "$SRC_DIR/delivery/run-tests.sh" "$APPDIR") || st_rc=$?
     rep=$(ls -1 "$ST"/fcai-test-report-*.txt 2>/dev/null | head -n1 || true)
     if [ -n "$rep" ]; then cp "$rep" "$LOGDIR/"; fi
     rm -rf "$ST"

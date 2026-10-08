@@ -158,3 +158,19 @@ rc=0
     || gfail "build did not stop on GLIBC_MAX (rc=$rc, $G/build.out)"
 echo "ok    build stops: $(grep -o 'GLIBC_REQUIRED=[0-9.]* > GLIBC_MAX=2.17' "$G/build.out" | head -n1), files: $(tr -d ' ' < "$G/dist/logs/glibc-too-new.txt" | tr '\n' ' ')"
 echo "glibc scenarios: all ok"
+
+# --- host python3 older than 3.9 (real: ubuntu:20.04 container, 3.8) --------
+# Frama-C 33's analysis scripts use list[str]: frama-c-script must WARN, not FAIL
+echo "==> frama-c-script with a python3 reporting 3.8"
+PY="$W/py38"; rm -rf "$PY"; mkdir -p "$PY"
+REALPY=$(command -v python3)
+cat > "$PY/python3" <<EOS
+#!/bin/sh
+if [ "\$1" = -c ]; then shift; c=\$1; shift; exec "$REALPY" -c "import sys; sys.version_info=(3,8,10); \$c" "\$@"; fi
+exec "$REALPY" "\$@"
+EOS
+chmod +x "$PY/python3"
+rc=0; (cd "$G" && env -i HOME="$G/home" PATH="$PY:/usr/bin:/bin" bash "$D/run-tests.sh" --quick) > "$G/py38.out" 2>&1 || rc=$?
+grep -q '^WARN  [a-z]*-script .*host python3 is 3.8' "$G/py38.out" && ! grep -q '^FAIL  [a-z]*-script' "$G/py38.out" \
+    || gfail "python 3.8 not reported as WARN ($G/py38.out)"
+echo "ok    $(grep -m1 '^WARN  [a-z]*-script' "$G/py38.out")"
