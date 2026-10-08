@@ -489,6 +489,14 @@ if [ $QUICK = 0 ]; then
         (cd "$WORK/trace" && runl strace-run strace -f -qq -e trace=file,process -o "$WORK/strace.txt" \
             "$FCM" frama-c -wp -wp-rte -wp-prover "$(echo $PROVERS | tr ' ' ',')" "$TESTS/wp_ok.c" \
             -then -eva "$TESTS/eva.c")
+        # the why3 CLI too: it once read its commands from the build tree
+        # (a compile-time libdir), which only works where that tree exists
+        if "$FCM" --fcai-help 2>/dev/null | grep -qx '  why3'; then
+            w3p=$(echo $PROVERS | cut -d" " -f1)
+            (cd "$WORK/trace" && runl strace-why3 strace -f -qq -e trace=file,process -o "$WORK/strace-why3.txt" \
+                "$FCM" why3 prove -P "$w3p" "$TESTS/why3_ok.why")
+            cat "$WORK/strace-why3.txt" >> "$WORK/strace.txt" 2>/dev/null
+        fi
         if [ -s "$WORK/strace.txt" ]; then
             ROOTDIR=$(dirname "$FCM")
             # every path the processes touched, with success/failure
@@ -501,7 +509,7 @@ if [ $QUICK = 0 ]; then
                         print p "\t" a[1] "\t" (a[2] ~ /^[A-Z]+$/ ? a[2] : "")
                     }
                 }' "$WORK/strace.txt" | sort -u > "$WORK/paths.tsv"
-            awk -F'\t' -v root="$ROOTDIR" -v work="$WORK" -v roots="$BUILD_ROOTS" '
+            awk -F'\t' -v root="$ROOTDIR" -v work="$WORK" -v tests="$TESTS" -v roots="$BUILD_ROOTS" '
                 function allowed(p) {
                     if (index(p, root "/") == 1 || p == root) return 1
                     if (index(p, work "/") == 1) return 1
@@ -519,6 +527,7 @@ if [ $QUICK = 0 ]; then
                 {
                     p = $1; rc = $2; err = $3
                     if (index(p, root "/") == 1 || p == root || index(p, work "/") == 1) next
+                    if (index(p, tests "/") == 1) next      # the test inputs themselves
                     if (index(root "/", p "/") == 1) next   # an ancestor directory of the bundle
                     for (i = 1; i <= n; i++) if (R[i] != "" && index(p, R[i]) == 1) {
                         if (rc ~ /^-/) print "WARNPROBE\t" p "\t" err; else print "FAILBUILD\t" p; next }

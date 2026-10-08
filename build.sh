@@ -261,6 +261,36 @@ if step framac-static; then
     done_step framac-static
 fi
 
+# ------------------------------------------------ 4b. relocatable why3 CLI
+# opam's why3 CLI finds its sub-commands in Config.libdir/commands, a path
+# fixed at compile time (src/tools/main.ml); WHY3LIB only affects the
+# library (whyconf.ml).  Bundled as is, it only worked where the build tree
+# exists.  Why3's --enable-relocation computes libdir and datadir from the
+# executable (<exe>/../lib/why3, <exe>/../share/why3), i.e. the AppDir
+# layout.  So the CLI (and its .cmxs commands and plugins, which must come
+# from the same build) is rebuilt from the same opam source, relocatable.
+WHY3_RELOC="$BUILD_ROOT/why3-reloc"
+if step why3-reloc; then
+    wv=$(oexec why3 --version | awk '{print $NF}')
+    WSRC="$BUILD_ROOT/src/why3-$wv"
+    rm -rf "$WSRC" "$WHY3_RELOC"
+    opam source --switch="$SWITCH" "why3.$wv" --dir "$WSRC"
+    if ! (cd "$WSRC" && oexec ./configure --prefix="$WHY3_RELOC" --enable-relocation \
+            --disable-ide --disable-web-ide --disable-coq-libs --disable-pvs-libs \
+            --disable-isabelle-libs) > "$LOGDIR/why3-reloc-configure.log" 2>&1; then
+        tail -n 30 "$LOGDIR/why3-reloc-configure.log"; die "why3 configure --enable-relocation failed (logs/why3-reloc-configure.log)"
+    fi
+    grep -q 'enable_relocation = "yes"' "$WSRC/src/util/config.ml" 2>/dev/null \
+        || grep -qi 'Relocatable *: *yes' "$LOGDIR/why3-reloc-configure.log" \
+        || die "why3 was not configured relocatable (logs/why3-reloc-configure.log)"
+    if ! (cd "$WSRC" && oexec make -j"$JOBS" && oexec make install) > "$LOGDIR/why3-reloc-build.log" 2>&1; then
+        tail -n 40 "$LOGDIR/why3-reloc-build.log"; die "relocatable why3 build failed (logs/why3-reloc-build.log)"
+    fi
+    [ -x "$WHY3_RELOC/bin/why3" ] && ls "$WHY3_RELOC"/lib/why3/commands/*.cmxs >/dev/null 2>&1 \
+        || die "relocatable why3: no bin/why3 or lib/why3/commands/*.cmxs under $WHY3_RELOC"
+    done_step why3-reloc
+fi
+
 # ---------------------------------------------------------- 5. prover files
 say "provers"
 fetch "$Z3_URL" "$Z3_SHA256" "$DL/$(basename "$Z3_URL")"
@@ -318,15 +348,15 @@ for f in "$WHY3_LIBDIR"/*; do
 done
 [ -x "$APPDIR/usr/lib/why3/why3server" ] || die "why3server not found in $WHY3_LIBDIR"
 # the why3 CLI: its sub-commands (config, prove, replay, ...) and parsers are
-# .cmxs files dynlinked from Config.libdir/{commands,plugins}, which AppRun's
-# WHY3LIB redirects to usr/lib/why3 (the executable gets its RPATH from
-# bundle_libs below)
-install -m 755 "$WHY3_BIN" "$APPDIR/usr/bin/why3"
+# .cmxs files dynlinked from <exe>/../lib/why3/{commands,plugins} (relocatable
+# build, step 4b); the executable gets its RPATH from bundle_libs below
+# the relocatable CLI (step 4b) and the commands/plugins built with it
+install -m 755 "$WHY3_RELOC/bin/why3" "$APPDIR/usr/bin/why3"
 for d in commands plugins; do
-    if [ -d "$WHY3_LIBDIR/$d" ]; then cp -a "$WHY3_LIBDIR/$d/." "$APPDIR/usr/lib/why3/$d/"; fi
+    if [ -d "$WHY3_RELOC/lib/why3/$d" ]; then cp -a "$WHY3_RELOC/lib/why3/$d/." "$APPDIR/usr/lib/why3/$d/"; fi
 done
 ( cd "$APPDIR/usr/lib/why3" && find . -type f | sort ) > "$LOGDIR/why3-files.txt"
-[ -n "$(ls "$APPDIR/usr/lib/why3/commands" 2>/dev/null)" ] || die "no Why3 commands in $WHY3_LIBDIR/commands: the why3 CLI would be useless"
+[ -n "$(ls "$APPDIR/usr/lib/why3/commands" 2>/dev/null)" ] || die "no Why3 commands in $WHY3_RELOC/lib/why3/commands: the why3 CLI would be useless"
 echo "why3 CLI: $(ls "$APPDIR/usr/lib/why3/commands" | wc -l) command file(s), $(ls "$APPDIR/usr/lib/why3/plugins" | wc -l) plugin file(s)"
 mkdir -p "$APPDIR/usr/share/fcai/licenses/why3"
 cp "$(oexec opam var why3:doc 2>/dev/null)"/LICENSE* "$APPDIR/usr/share/fcai/licenses/why3/" 2>/dev/null || true

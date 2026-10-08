@@ -46,6 +46,10 @@ cat > "$R/bin/opam" <<EOF
 if [ "\$1" = exec ]; then shift; while [ "\$1" != "--" ]; do shift; done; shift
     PATH="$W/mockbin:\$PATH" exec "\$@"; fi
 if [ "\$1" = var ]; then echo /nonexistent; exit 0; fi
+if [ "\$1" = source ]; then pkg=""; dir=""
+    while [ \$# -gt 0 ]; do case "\$1" in --dir) dir=\$2; shift;; why3.*) pkg=\$1;; esac; shift; done
+    case "\$pkg" in why3.*) mkdir -p "\$dir"; cp -a "$MOCKSRC/why3-src/." "\$dir/"; cp "$MOCKSRC/why3.in" "\$dir/why3.in"; exit 0;; esac
+fi
 echo "mock opam: \$*" >&2
 EOF
 chmod +x "$R/bin/opam"
@@ -70,10 +74,11 @@ install -D -m 755 "$MOCKSRC/find_fun.py" "$STAGE/lib/frama-c/lib/analysis-script
 install -D -m 755 "$MOCKSRC/make_machdep.py" "$STAGE/lib/frama-c/lib/make_machdep/make_machdep.py"
 
 # --- fake Why3 CLI / data / libdir, fake alt-ergo ------------------------------
-mkdir -p "$W/why3data/drivers" "$W/why3lib/commands" "$W/why3lib/plugins"
+W3L="$R/opam/fcai/lib/why3"   # like the real /fcai-build/opam/fcai/lib/why3: under BUILD_ROOTS
+rm -rf "$W/why3lib"; mkdir -p "$W/why3data/drivers" "$W3L/commands" "$W3L/plugins"
 # the CLI's sub-commands / parsers are .cmxs dynlinked from libdir
-for c in config prove replay session; do echo "mock cmxs" > "$W/why3lib/commands/$c.cmxs"; done
-echo "mock cmxs" > "$W/why3lib/plugins/tptp.cmxs"
+for c in config prove replay session; do echo "mock cmxs (opam build)" > "$W3L/commands/why3$c.cmxs"; done
+echo "mock cmxs (opam build)" > "$W3L/plugins/tptp.cmxs"
 echo "(* mock driver *)" > "$W/why3data/drivers/z3.drv"
 # why3server: an ELF depending on libraries laid out like ubuntu:20.04's
 # libmpc.so.3 (old binutils: 2 MiB p_align, no separate-code), with an
@@ -90,9 +95,10 @@ gcc -shared -fPIC -O2 $OLDLD -o "$OLD/libfcaiold2.so.1" -Wl,-soname,libfcaiold2.
 # shellcheck disable=SC2086
 gcc -shared -fPIC -O2 $OLDLD -o "$OLD/libfcaiold.so.1" -Wl,-soname,libfcaiold.so.1 "$OLD/old.c" \
     "$OLD/libfcaiold2.so.1" -Wl,--enable-new-dtags,-rpath,"$OLD"
-gcc -O2 -o "$W/why3lib/why3server" "$OLD/server.c" "$OLD/libfcaiold.so.1" -Wl,--enable-new-dtags,-rpath,"$OLD"
-"$W/why3lib/why3server" | grep -q why3server-ok || { echo "mock why3server does not run"; exit 1; }
-sed -e "s|@WHY3LIB@|$W/why3lib|" -e "s|@WHY3DATA@|$W/why3data|" "$MOCKSRC/why3.in" > "$W/mockbin/why3"
+gcc -O2 -o "$W3L/why3server" "$OLD/server.c" "$OLD/libfcaiold.so.1" -Wl,--enable-new-dtags,-rpath,"$OLD"
+"$W3L/why3server" | grep -q why3server-ok || { echo "mock why3server does not run"; exit 1; }
+sed -e "s|@WHY3LIB@|$W3L|" -e "s|@WHY3DATA@|$W/why3data|" -e "s|@RELOC@|no|" "$MOCKSRC/why3.in" > "$W/mockbin/why3"
+rm -f "$R/stamps/why3-reloc"   # always exercise the relocatable why3 build
 chmod +x "$W/mockbin/why3"
 install -m 755 "$MOCKSRC/alt-ergo" "$W/mockbin/alt-ergo"
 

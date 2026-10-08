@@ -24,6 +24,8 @@ Read this before changing anything. `README.md` is the user-facing overview, and
 
 **Messages to the owner.** Keep them short: what failed, the cause, what changed, what to run, what to send back. The owner is technical. Be precise; skip the tutorials.
 
+**Real builds can be tested by the agent.** The owner publishes the delivery tar as a GitHub release of `GigAnon/framac-bundle`, a public repo, e.g. `gh release create build-<date> dist/frama-c-33.0-offline-x86_64.tar`. The agent downloads it (release assets are reachable), checks `SHA256SUMS`, and runs the shipped `run-tests.sh` in its workspace. That workspace is Ubuntu 24.04 with glibc 2.39, where FUSE, unprivileged `unshare` and Xvfb all worked on 2026-10-08, so it covers what the build container SKIPs.
+
 **The agent's workspace network may be restricted.** In the first session opam.ocaml.org, frama-c.com, git.frama-c.com and nodejs.org were blocked, while GitHub release assets were reachable. A real build was therefore impossible there, which is why the mock exists. Check what is reachable before relying on it. Never try to get around a proxy refusal.
 
 ## Pipeline (`build.sh`)
@@ -38,6 +40,7 @@ Each step is stamped in `$BUILD_ROOT/stamps`; `FORCE=step` or `FORCE=all` reruns
 | 2b | vendoring (not stamped) | `EXTRA_PLUGINS` (MetAcsl) is copied into `src/plugins/fcai-extra-<pkg>/` with `opam source`. The `.fcai-<pkg>` marker forces a rebuild when the list changes. |
 | 3 | `framac-build` | `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
 | 4 | `framac-static` | `lib/gen_static_exe.py` finds the `frama-c` executable stanza, reads the plug-in libraries from `_build/install/default/lib/frama-c/plugins/*/META`, and writes `src/init/boot/fcai_static/dune`. It then builds and runs `dune install --release --relocatable --prefix $STAGE`. |
+| 4b | `why3-reloc` | Relocatable why3 CLI: `opam source why3.<ver>`, `./configure --enable-relocation --prefix=$BUILD_ROOT/why3-reloc`, `make`, `make install`. Its `bin/why3` and `lib/why3/{commands,plugins}` are what the AppDir ships. |
 | 5 | downloads | Z3 4.13.0 (glibc-2.31 build), CVC4 1.8 (static, CVC4-archived repo), cvc5 1.2.1 (static), appimagetool 1.9.0, type2 runtime 20251108. All pinned by SHA256. |
 | 6 | AppDir | The static `frama-c`, `frama-c-script` (patched by `lib/patch_script.py`: each `$(... -print-share-path/-print-lib-path)` keeps its first line; original and patch report in `logs/`) + its helpers `usr/lib/frama-c/lib` (analysis-scripts, make_machdep), `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), `bundle_libs.py` (pinned static patchelf 0.18.0; executables get a relative DT_RPATH, copied libraries are **not modified**, every patched file is checked for PT_LOAD alignment, and `ldd` errors fail the build), and the `usr$STAGE → usr` symlink. |
 | 7 | relocation check | Writes `usr/share/fcai/dune-dir-locations`. Moves a copy; **every** `-print-share-path` entry must exist and contain `libc/`. Parses a C file with `#include`s while the original AppDir is moved away. Runs `-plugins`. |
@@ -63,11 +66,17 @@ Do not "fix" these back. Each one was observed in a real log.
   - the symlink alias `usr/fcai-build/stage → ..`, because Frama-C builds the libc `-I` path from the *baked* entry (it failed until the alias was added).
 - **`DUNE_DIR_LOCATIONS` format.** `pkg:section:dir` triples joined by `:`, so bundle paths cannot contain `:`. dune-site prepends env entries before the encoded one. An unset `DUNE_OCAML_HARDCODED` is only a problem if plug-ins are dynlinked, which they never are here.
 - **Why3 runs provers through `$WHY3LIB/why3server`.** It is ENOENT if not shipped. `WHY3DATA`/`WHY3LIB` env vars override Why3's `Config`. The prover config is a template, filled in per location.
-- **The `why3` CLI** (owner, 2026-10-08: "add why3 to bin/") is now shipped as `usr/bin/why3`, the opam binary, which gets an RPATH from `bundle_libs`.
-  - Its subcommands and parsers are `.cmxs` files dynlinked from `Config.libdir/{commands,plugins}`. They are copied to `usr/lib/why3/{commands,plugins}`, which `WHY3LIB` points to. The list goes to `logs/why3-files.txt`, and the build dies if `commands/` is empty.
+- **The `why3` CLI** (owner, 2026-10-08: "add why3 to bin/") is shipped as `usr/bin/why3` and gets an RPATH from `bundle_libs`.
+  - **It must be the relocatable build (step 4b, `why3-reloc`).** `src/tools/main.ml` reads sub-commands from `Filename.concat Config.libdir "commands"`. That libdir is a compile-time constant; only the library (`whyconf.ml`) reads `WHY3LIB`.
+    - The first bundle shipped the **opam** binary. It passed every test in the build container, because `/fcai-build/opam/fcai/lib/why3/commands` exists there: a silent build-tree dependency.
+    - On the agent's machine, with the real 2026-10-08 release, `why3 config list-provers` failed with `anomaly: Sys_error("/fcai-build/opam/fcai/lib/why3/commands: No such file or directory")`.
+    - Fix: `opam source why3.<ver>`, then `./configure --enable-relocation --prefix=$BUILD_ROOT/why3-reloc` (IDE, Coq, PVS and Isabelle disabled), `make`, and `make install` (= install-bin + install-data, no findlib). In config.sh.in, relocation gives `libdir = <exe>/../../lib/why3` and `datadir = …/share/why3`, which is exactly the AppDir layout.
+    - Its `bin/why3` and `lib/why3/{commands,plugins}` are bundled; they must come from the same build, as the `.cmxs` are dynlinked into it. The helpers (`why3server`, …) still come from opam's libdir. Logs: `why3-reloc-configure.log`, `why3-reloc-build.log`.
+    - `strace-leaks` now also traces `why3 prove`; test inputs under `$TESTS` are exempt from the host-path patterns, because `why3_ok.why` matched `/why3`. With the old binary, the mock fails it on `<build root>/opam/fcai/lib/why3/commands/why3prove.cmxs`.
+  - The list of shipped files goes to `logs/why3-files.txt`, and the build dies if `commands/` is empty.
   - `AppRun why3` runs it with `setup_env`, and `install.sh` links it.
   - Test `<mode>-why3`: `--version`, `config list-provers`, and `why3 prove -P <first bundled prover> tests/why3_ok.why` must say Valid.
-  - **Verified on the 2026-10-08 build:** the opam `.cmxs` dynlink fine from the bundle; `why3 prove -P z3` proves the goal. The libdir holds 14 commands (`why3bench`, `why3config`, …, `why3wc`, `why3webserver`, named `why3<cmd>.cmxs`), parser plugins (`cfg`, `coma`, `dimacs`, `forward_propagation`, `genequlin`, `hypothesis_selection`, `microc`, `python`, `tptp`; `.cma` + `.cmxs`) and the helpers `why3-call-pvs`, `why3cpulimit` and `why3server`.
+  - **2026-10-08 build:** `why3 prove -P z3` proved the goal in the container, but only through the build tree (see above). The opam libdir holds 14 commands (`why3bench`, `why3config`, …, `why3wc`, `why3webserver`, named `why3<cmd>.cmxs`), parser plugins (`cfg`, `coma`, `dimacs`, `forward_propagation`, `genequlin`, `hypothesis_selection`, `microc`, `python`, `tptp`; `.cma` + `.cmxs`) and the helpers `why3-call-pvs`, `why3cpulimit` and `why3server`.
 - **`WHY3CONFIG` from the environment is honoured** (a colleague's request, 2026-10-08). `setup_env` used to always replace it with the generated configuration. Now `FCAI_WHY3CONFIG` wins first, then a non-empty `WHY3CONFIG` (with a warning if it is unreadable), then the generated one. Ivette's inner frama-c inherits the outer choice.
   - Test `<mode>-why3config`: a copy of the generated configuration keeping only the first prover must be all that `why3 config list-provers` sees, and WP must run with that prover.
     - **Real `list-provers` prints each prover's variants**, e.g. "Alt-Ergo 2.6.2", "… (BV)", "… (counterexamples)". The first version of the test required exactly one line and FAILed on the 2026-10-08 build, although the variable *was* honoured: only Alt-Ergo lines appeared.
@@ -148,7 +157,13 @@ Do not "fix" these back. Each one was observed in a real log.
 
 `run-mock.sh [WORKDIR]` stamps steps 0–4 as done, installs a fake `opam`, and fakes:
 - the stage (`frama-c-static.in`: mimics `-print-share-path` with the baked second entry, `DUNE_DIR_LOCATIONS` handling, libc taken from the *baked* entry, the why3server requirement, prover calls through `PATH`);
-- the Why3 CLI (`why3.in`): it honours `WHY3LIB`/`WHY3DATA` (with baked build paths as fallback), refuses subcommands whose `$WHY3LIB/commands/<cmd>.cmxs` is missing, and its `prove` resolves the prover through `WHY3CONFIG` and runs the bundled `why3server`;
+- the Why3 CLI (`why3.in`), like the real one:
+  - sub-commands come from `Config.libdir/commands/why3<cmd>.cmxs` **without** looking at `WHY3LIB`;
+  - `Config.libdir` is baked, or `<exe>/../lib/why3` when built relocatable (`@RELOC@`);
+  - the library side (`why3server`, drivers) honours `WHY3LIB`/`WHY3DATA`;
+  - `prove` resolves the prover through `WHY3CONFIG`;
+  - the opam libdir lives under the build root (`$R/opam/fcai/lib/why3`), as on the real build;
+  - the fake `opam source why3.*` gives `dev/mock/why3-src` (a `configure` with `--prefix`/`--enable-relocation`, and a `Makefile` whose `install` lays out bin/lib/share), and the `why3-reloc` step always runs;
 - `alt-ergo`;
 - Ivette (`mock-ivette.c`: an ELF that starts `frama-c -server-socket` from `PATH`; `IVETTE_MOCK=bad` gives one that never does);
 - `frama-c-script`: the real 33.0 script; `-print-lib-path` prints the baked entry, and `stage/lib/frama-c/lib/analysis-scripts/find_fun.py` is a mock that must be shipped (it uses 3.10-only syntax), and so is `make_machdep/make_machdep.py`, which imports `yaml`. A final scenario runs `run-tests.sh --quick` with a host `python3` stub that reports 3.8 and exits 99 if asked to run a script, and expects `*-script` PASS "(python: bundled)";
@@ -163,8 +178,11 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 
 ## Open items / next steps
 
-1. **2026-10-08 build: everything PASSes except `dir-why3config`**, whose test was wrong (fixed, mock only). The owner reports that **the bundle works on RHEL 9.8**; their `fcai-test-report` from the target has not been sent yet. Next: a rebuild, expecting 0 FAIL, and a check of the new completion sources in `completion.txt` and `completion-src/`.
-2. **Target side:** RHEL 9.8 runs the 20.04 build (owner). The target test report is still wanted for the FUSE mount, `unshare -rn` and Ivette with a real display.
+1. **Release build-20261008-1759, run by the agent** (Ubuntu 24.04, glibc 2.39): every test PASSes except `why3` and `why3config`, both caused by the build-tree dependency of the opam `why3` (fixed by the relocatable rebuild, mock only).
+   - These PASS: FUSE mount, extraction, `reloc-appimage`/`dir`/`orig-hidden`, `offline` (`unshare -rn`), `strace-leaks`, all Ivette tests (Xvfb), and `completion` (1185 options).
+   - The owner reports that the bundle works on RHEL 9.8.
+   - Next: a rebuild (the new `why3-reloc` step needs network and about 5–10 minutes), then a new release for the agent to test.
+2. **Not yet tested:** Ivette with a real display.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);

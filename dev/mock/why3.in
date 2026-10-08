@@ -1,17 +1,27 @@
 #!/bin/bash
-# MOCK why3 CLI.  Like the real one: Config.libdir/datadir are baked build
-# paths, overridden by WHY3LIB/WHY3DATA; sub-commands exist only if
-# $libdir/commands/<cmd>.cmxs can be dynlinked; provers come from WHY3CONFIG
-# and run through $libdir/why3server.
-libdir=${WHY3LIB:-@WHY3LIB@}; datadir=${WHY3DATA:-@WHY3DATA@}
+# MOCK why3 CLI, like the real 1.8.2 (src/tools/main.ml, whyconf.ml):
+#  * Config.libdir/datadir: baked build paths, or <exe>/../lib/why3 and
+#    <exe>/../share/why3 in a relocatable build (configure --enable-relocation);
+#  * sub-commands: Config.libdir/commands/why3<cmd>.cmxs -- WHY3LIB is NOT
+#    consulted for them (the bug the 2026-10-08 real run showed);
+#  * the library side (drivers, why3server) honours WHY3LIB/WHY3DATA;
+#  * provers come from WHY3CONFIG.
+if [ "@RELOC@" = yes ]; then
+    top=$(dirname "$(dirname "$(readlink -f "$0")")")
+    cfg_libdir="$top/lib/why3"; cfg_datadir="$top/share/why3"
+else
+    cfg_libdir="@WHY3LIB@"; cfg_datadir="@WHY3DATA@"
+fi
+libdir=${WHY3LIB:-$cfg_libdir}; datadir=${WHY3DATA:-$cfg_datadir}
 case "${1:-}" in
   --version) echo "Why3 platform, version 1.8.2"; exit 0;;
-  --print-libdir) echo "$libdir"; exit 0;;
-  --print-datadir) echo "$datadir"; exit 0;;
+  --print-libdir) echo "$cfg_libdir"; exit 0;;
+  --print-datadir) echo "$cfg_datadir"; exit 0;;
   "") echo "usage: why3 <command> [options]"; exit 1;;
 esac
 cmd=$1; shift
-[ -f "$libdir/commands/$cmd.cmxs" ] || { echo "why3: cannot load command '$cmd': $libdir/commands/$cmd.cmxs: No such file"; exit 1; }
+[ -d "$cfg_libdir/commands" ] || { echo "anomaly: Sys_error(\"$cfg_libdir/commands: No such file or directory\")"; exit 1; }
+[ -f "$cfg_libdir/commands/why3$cmd.cmxs" ] || { echo "why3: unknown command '$cmd'"; exit 1; }
 [ -d "$datadir/drivers" ] || { echo "why3: drivers not found in $datadir"; exit 1; }
 case "$cmd" in
   config)

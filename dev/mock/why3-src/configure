@@ -1,0 +1,13 @@
+#!/bin/sh
+# MOCK why3 configure: --prefix and --enable-relocation, like the real one
+prefix=/usr/local reloc=no
+for a in "$@"; do
+    case "$a" in
+        --prefix=*) prefix=${a#--prefix=} ;;
+        --enable-relocation) reloc=yes ;;
+    esac
+done
+mkdir -p src/util
+echo "let enable_relocation = \"$reloc\"" > src/util/config.ml
+printf 'PREFIX=%s\nRELOC=%s\n' "$prefix" "$reloc" > config.mk
+echo "    Relocatable             : $reloc"
