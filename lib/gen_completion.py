@@ -7,6 +7,9 @@ ivette and frama-c-script, from the bundled frama-c's own help:
     frama-c -plugins          -> plug-ins and their "-<x>-h" help options
     frama-c -kernel-h, -<x>-h -> every option, "<arg>" and "-no-" opposites
     frama-c -machdep help     -> machdeps
+    frama-c -autocomplete @all -> options (what upstream's autocomplete_frama-c uses)
+    frama-c -wp-list-provers  -> prover names accepted by -wp-prover
+    frama-c -X-msg-key help, -X-warn-key help -> message / warning categories
     frama-c-script help       -> sub-commands
 Everything is baked into the script: completing never starts frama-c (an
 AppImage would be mounted on every TAB), and the script works outside the
@@ -70,6 +73,31 @@ def main():
         parse_help(run(fc + [h], dump_dir, "help" + h), opts, argopts, fileopts)
     opts.update(help_opts)
 
+    # upstream's own option list (share/autocomplete_frama-c relies on it)
+    auto = run(fc + ["-autocomplete", "@all"], dump_dir, "autocomplete-all")
+    opts.update(re.findall(r"(?:^|\s)(-[A-Za-z0-9][\w-]*)", auto))
+
+    # per-option value lists (comma-separated): message and warning categories
+    optvals = {}
+    for o in sorted(o for o in argopts if o.endswith("-msg-key") or o.endswith("-warn-key")):
+        text = run(fc + [o, "help"], dump_dir, "keys" + o)
+        keys = set()
+        for line in text.splitlines():
+            m = re.match(r"^\s{2,}([a-z][\w:-]*)(?:\s|$)", line)
+            if m and not line.lstrip().startswith("*"):
+                keys.add(m.group(1))
+        if keys:
+            optvals[o] = keys
+
+    # WP prover names (bracketed, '|'-separated in -wp-list-provers)
+    wtext = run(fc + ["-wp-list-provers"], dump_dir, "wp-list-provers")
+    wp_names = set()
+    for grp in re.findall(r"\[([^\]]*)\]", wtext):
+        for n in grp.split("|"):
+            n = n.strip()
+            if n and " " not in n and n not in ("wp",):
+                wp_names.add(n)
+
     mtext = run(fc + ["-machdep", "help"], dump_dir, "machdep-help")
     machdeps = {w for w in re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", mtext)
                 if re.search(r"x86|ppc|arm|aarch|riscv|msvc|gcc|mips|avr|sparc", w)}
@@ -77,7 +105,13 @@ def main():
     stext = run([apprun, "frama-c-script", "help"], dump_dir, "script-help")
     script_cmds = set(re.findall(r"^\s+-\s+([a-z][a-z0-9-]*)", stext, re.M))
 
-    wp_provers = set(provers.split()) | {"native:alt-ergo", "script", "tip", "none"}
+    wp_provers = set(provers.split()) | wp_names | {"native:alt-ergo", "script", "tip", "none"}
+    optvals["-wp-prover"] = wp_provers
+    optvals["-machdep"] = machdeps | {"help"}
+    for o in list(optvals):
+        if o not in opts:
+            del optvals[o]
+    optvals_bash = "\n".join("    [%s]='%s'" % (o, words(v)) for o, v in sorted(optvals.items()))
 
     # why3 CLI sub-commands: the .cmxs shipped in usr/lib/why3/commands
     cmd_dir = os.path.join(os.path.dirname(os.path.abspath(apprun)), "usr", "lib", "why3", "commands")
@@ -91,9 +125,11 @@ def main():
         "OPTS": words(opts), "ARGOPTS": words(argopts), "FILEOPTS": words(fileopts),
         "MACHDEPS": words(machdeps), "PROVERS": words(wp_provers), "SCRIPT_CMDS": words(script_cmds),
         "WHY3_CMDS": words(why3_cmds), "WHY3_PROVERS": words(set(provers.split())),
+        "OPTVALS": optvals_bash,
     }
     for k, v in vals.items():
-        assert "'" not in v, k
+        assert k == "OPTVALS" or "'" not in v, k
+    assert all("'" not in w for v in optvals.values() for w in v)
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "completion.bash.in")) as f:
         tpl = f.read()
     for k, v in vals.items():
@@ -101,8 +137,10 @@ def main():
     with open(out, "w") as f:
         f.write(tpl)
     print("completion: %d options (%d with an argument, %d with a file argument), "
-          "%d plug-in help options, %d machdeps, %d frama-c-script commands, %d why3 commands"
-          % (len(opts), len(argopts), len(fileopts), len(help_opts), len(machdeps), len(script_cmds), len(why3_cmds)))
+          "%d plug-in help options, %d machdeps, %d WP provers, %d options with value lists (%d values), "
+          "%d frama-c-script commands, %d why3 commands"
+          % (len(opts), len(argopts), len(fileopts), len(help_opts), len(machdeps), len(wp_provers), len(optvals), sum(len(v) for v in optvals.values()),
+             len(script_cmds), len(why3_cmds)))
 
 
 if __name__ == "__main__":

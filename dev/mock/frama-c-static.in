@@ -14,6 +14,9 @@ for ((i=0;i<${#args[@]};i++)); do a=${args[$i]}
     -print-lib-path) echo "$prefix/@STAGE@/lib/frama-c/lib"; exit 0;;   # real 33.0: baked entry only
     -plugins) cat "$share/../mock-help/plugins.txt"; exit 0;;   # the real 33.0 list
     -machdep) [ "${args[$((i+1))]:-}" = help ] && { echo "[kernel] supported machines are gcc_x86_16 gcc_x86_32 gcc_x86_64 ppc_32 x86_16 x86_32 x86_64 msvc_x86_64 (default is x86_64)."; exit 0; }; i=$((i+1));;
+    -autocomplete) echo " -eva -wp -wp-prover -machdep -kernel-warn-key -wp-msg-key -then -fcai-mock-autocomplete-only"; exit 0;;
+    -wp-list-provers) printf '[wp] Provers:\n  - Alt-Ergo 2.6.2 [alt-ergo]\n  - Z3 4.13.0 [z3|z3-ce]\n  - CVC5 1.2.1 [cvc5]\n'; exit 0;;
+    -kernel-warn-key|-kernel-msg-key|-wp-msg-key) [ "${args[$((i+1))]:-}" = help ] && { echo "[kernel] Existing categories and their status:"; printf '    %s\n' annot-error annot:missing-spec parser:decimal-float shell; exit 0; }; i=$((i+1));;
     -*-h) h=${a#-}; h=${h%-h}; if [ -f "$share/../mock-help/$h.txt" ]; then cat "$share/../mock-help/$h.txt"; else printf -- '-%s               mock option of %s\n' "$h" "$h"; fi; exit 0;;
     -wp-detect) grep -A3 partial_prover "$WHY3CONFIG" | sed -n 's/name = "\(.*\)"/[wp] Prover \1/p'; exit 0;;
     -wp) mode=wp;; -eva) mode=eva;;

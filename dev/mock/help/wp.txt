@@ -11,3 +11,5 @@ Plug-in shortname: wp
 -wp-timeout <n>     set the timeout (in seconds) for provers
 -wp-par <p>         number of parallel proof process
 -wp-out <dir>       set working directory for generated files
+-wp-msg-key <k1[,k2,...,kn]>  enables message display for categories
+-wp-list-provers    list the provers known by why3

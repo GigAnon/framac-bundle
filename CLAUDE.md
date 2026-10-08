@@ -67,9 +67,11 @@ Do not "fix" these back. Each one was observed in a real log.
   - Its subcommands and parsers are `.cmxs` files dynlinked from `Config.libdir/{commands,plugins}`. They are copied to `usr/lib/why3/{commands,plugins}`, which `WHY3LIB` points to. The list goes to `logs/why3-files.txt`, and the build dies if `commands/` is empty.
   - `AppRun why3` runs it with `setup_env`, and `install.sh` links it.
   - Test `<mode>-why3`: `--version`, `config list-provers`, and `why3 prove -P <first bundled prover> tests/why3_ok.why` must say Valid.
-  - **Not yet verified on a real build:** that the opam `.cmxs` dynlink fine from the bundle. Check the `<mode>-why3` logs from the next build.
+  - **Verified on the 2026-10-08 build:** the opam `.cmxs` dynlink fine from the bundle; `why3 prove -P z3` proves the goal. The libdir holds 14 commands (`why3bench`, `why3config`, …, `why3wc`, `why3webserver`, named `why3<cmd>.cmxs`), parser plugins (`cfg`, `coma`, `dimacs`, `forward_propagation`, `genequlin`, `hypothesis_selection`, `microc`, `python`, `tptp`; `.cma` + `.cmxs`) and the helpers `why3-call-pvs`, `why3cpulimit` and `why3server`.
 - **`WHY3CONFIG` from the environment is honoured** (a colleague's request, 2026-10-08). `setup_env` used to always replace it with the generated configuration. Now `FCAI_WHY3CONFIG` wins first, then a non-empty `WHY3CONFIG` (with a warning if it is unreadable), then the generated one. Ivette's inner frama-c inherits the outer choice.
-  - Test `<mode>-why3config`: a copy of the generated configuration keeping only the first prover must be all that `why3 config list-provers` sees, and WP must run with that prover. The mock frama-c now requires the prover to be declared in `WHY3CONFIG`, as real WP does, and the old AppRun fails this test.
+  - Test `<mode>-why3config`: a copy of the generated configuration keeping only the first prover must be all that `why3 config list-provers` sees, and WP must run with that prover.
+    - **Real `list-provers` prints each prover's variants**, e.g. "Alt-Ergo 2.6.2", "… (BV)", "… (counterexamples)". The first version of the test required exactly one line and FAILed on the 2026-10-08 build, although the variable *was* honoured: only Alt-Ergo lines appeared.
+    - The test now requires every listed line to name that prover, and the mock's `list-provers` prints variants too. The mock frama-c now requires the prover to be declared in `WHY3CONFIG`, as real WP does, and the old AppRun fails this test.
 - **`why3 config detect`** lists Alt-Ergo 2.6.2, CVC4 1.8, CVC5 1.2.1 and Z3 4.13.0 (plus their variants).
 - **`-wp-detect` does not exist in Frama-C 33.** The test SKIPs it.
 - **WP on `delivery/tests/wp_ok.c`, run with `-wp-rte`:**
@@ -119,7 +121,12 @@ Do not "fix" these back. Each one was observed in a real log.
     - Its other modes are `--system` (root, the system completions directory), `--uninstall` and `--print`.
     - As root, `install.sh` now defaults to `/opt/frama-c-VERSION` and `/usr/local/bin`.
   - **Test:** `completion` drives `_fcai_frama_c` / `_fcai_frama_c_script` with `COMP_WORDS`.
-  - **Not yet verified on a real build:** the parser assumes Frama-C's help format ("-opt <arg>" at column 0, "(opposite option is -no-x)", `-plugins` lines ending in "(-x-h)"). Check `logs/completion-src/` and `completion.txt` (option counts) from the next build.
+  - **Verified on the 2026-10-08 build:** 1035 options (404 with an argument, 80 with a file argument), 34 plug-in help options, 11 machdeps, 15 `frama-c-script` commands and 14 `why3` commands. The help format assumptions hold.
+  - **Compared with upstream `autocomplete_frama-c`** (supplied by the owner):
+    - Upstream runs frama-c on every TAB: `-autocomplete @all` for options, `-wp-list-provers` for `-wp-prover` (bracketed names separated by `|`), and `<opt> help` for `-wp-msg-key`, `-kernel-msg-key` and `-kernel-warn-key`. It also globally removes `:` from `COMP_WORDBREAKS`, and registers `frama-c` and `frama-c-gui`.
+    - Ours now takes all of these at build time: options from `-autocomplete @all`, prover names from `-wp-list-provers`, and the keys of **every** `-*-msg-key` and `-*-warn-key` option. The values sit in a bash associative array, `_fcai_optvals`, and are completed as comma-separated lists.
+    - Words are taken from `COMP_LINE`, and the part before the last `:` is trimmed from candidates, so `native:alt-ergo` and `annot:missing-spec` complete without touching `COMP_WORDBREAKS`. `frama-c-gui` is registered too.
+    - **Not yet verified on a real build:** the formats of `-autocomplete @all`, `-wp-list-provers` and `<key-opt> help` follow upstream's regexes. Check `completion.txt`, which now counts WP provers and value lists, and the `completion-src/keys-*`, `wp-list-provers` and `autocomplete-all` dumps.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants
@@ -152,8 +159,8 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 
 ## Open items / next steps
 
-1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). `frama-c-script`: the helpers are now found (real build); the bundled Python is validated by the mock only. Next: a rebuild, expecting `dir-script` PASS "(python: bundled)", `dir-script-yaml` PASS, `strace-leaks` PASS and `completion`, `dir-why3` and `dir-why3config` PASS (check `logs/completion-src/` and `logs/why3-files.txt`), then `run-tests.sh` on RHEL 9.8.
-2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display. The target is RHEL 9.8 (glibc 2.34); the 22.04 build failed there on glibc.
+1. **2026-10-08 build: everything PASSes except `dir-why3config`**, whose test was wrong (fixed, mock only). The owner reports that **the bundle works on RHEL 9.8**; their `fcai-test-report` from the target has not been sent yet. Next: a rebuild, expecting 0 FAIL, and a check of the new completion sources in `completion.txt` and `completion-src/`.
+2. **Target side:** RHEL 9.8 runs the 20.04 build (owner). The target test report is still wanted for the FUSE mount, `unshare -rn` and Ivette with a real display.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);

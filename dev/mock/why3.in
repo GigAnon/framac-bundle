@@ -20,7 +20,8 @@ case "$cmd" in
          for p in alt-ergo z3 cvc4 cvc5; do b=$(command -v $p) || continue
            case $p in z3) n=Z3;; cvc4) n=CVC4;; cvc5) n=CVC5;; alt-ergo) n=Alt-Ergo;; esac
            printf '\n[partial_prover]\nname = "%s"\npath = "%s"\nversion = "x"\n' $n "$b"; done; } > "$WHY3CONFIG";;
-      list-provers) sed -n 's/^name = "\(.*\)"/\1/p' "$WHY3CONFIG";;
+      # real why3 also lists each prover's variants (see logs/why3-provers.txt)
+      list-provers) sed -n 's/^name = "\(.*\)"/\1 1.0\n\1 1.0 (counterexamples)/p' "$WHY3CONFIG";;
     esac;;
   prove)
     prover="" file=""

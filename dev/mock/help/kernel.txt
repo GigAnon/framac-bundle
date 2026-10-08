@@ -37,3 +37,11 @@ have an opposite with the name '-no-option-name'.
                     accordingly, then parse options after it
 -then-last          like -then, but the next actions are executed on the
                     last project
+
+*** MESSAGES
+
+-kernel-msg-key <k1[,k2,...,kn]>  enables message display for categories
+                    <k1>,...,<kn>. Use -kernel-msg-key help to get a list of
+                    available categories
+-kernel-warn-key <k1[=s1][,k2[=s2],...,kn[=sn]]>  set warning status for
+                    category <k1> to <s1>,...,<kn> to <sn>

@@ -3,18 +3,55 @@
 # bundled frama-c's own help by lib/gen_completion.py: completing never
 # starts frama-c, and this file works outside the AppImage.
 #
-# Load it with bash-completion (install.sh puts it in
-# ~/.local/share/bash-completion/completions/), or by hand:
+# Covers what upstream's share/autocomplete_frama-c does (options from
+# '-autocomplete @all', -wp-prover from -wp-list-provers, -<plugin>-msg-key /
+# -warn-key categories, comma-separated lists, values containing ':') without
+# running frama-c on every TAB and without changing COMP_WORDBREAKS.
+#
+# Enable it per user with setup_completion.sh, or by hand:
 #     source <(frama-c --fcai-completion)
 
 _fcai_opts='@OPTS@'
 _fcai_argopts=' @ARGOPTS@ '
 _fcai_fileopts=' @FILEOPTS@ '
-_fcai_machdeps='@MACHDEPS@'
-_fcai_provers='@PROVERS@'
 _fcai_script_cmds='@SCRIPT_CMDS@'
 _fcai_why3_cmds='@WHY3_CMDS@'
 _fcai_why3_provers='@WHY3_PROVERS@'
+# option -> accepted values (comma-separated lists for keys and provers)
+declare -A _fcai_optvals=(
+@OPTVALS@
+)
+
+# current and previous words as typed, from COMP_LINE: bash splits words at
+# ':' and '=' (COMP_WORDBREAKS), which would break 'native:alt-ergo' or
+# 'annot:missing-spec' (upstream removes ':' from COMP_WORDBREAKS for the
+# whole shell instead)
+_fcai_words() {
+    local line
+    if [ -n "${COMP_LINE:-}" ]; then
+        line=${COMP_LINE:0:${COMP_POINT:-${#COMP_LINE}}}
+        local -a w
+        read -r -a w <<< "$line"
+        if [[ $line == *" " ]]; then
+            _fcai_cur="" _fcai_prev=${w[${#w[@]}-1]:-}
+        else
+            _fcai_cur=${w[${#w[@]}-1]:-} _fcai_prev=${w[${#w[@]}-2]:-}
+        fi
+    else
+        _fcai_cur=${COMP_WORDS[COMP_CWORD]}
+        _fcai_prev=""; [ "$COMP_CWORD" -gt 0 ] && _fcai_prev=${COMP_WORDS[COMP_CWORD-1]}
+    fi
+}
+
+# bash replaces only the part of the word after the last ':' (if ':' is a
+# word break): strip what precedes it from the candidates
+_fcai_colon_trim() {
+    local cur=$1 i
+    if [[ $cur == *:* && ${COMP_WORDBREAKS:-:} == *:* ]]; then
+        local pre=${cur%"${cur##*:}"}
+        for i in "${!COMPREPLY[@]}"; do COMPREPLY[$i]=${COMPREPLY[$i]#"$pre"}; done
+    fi
+}
 
 # C sources (and the usual Frama-C inputs) plus directories
 _fcai_sources() {
@@ -46,16 +83,18 @@ _fcai_list() { # WORDS CUR
 }
 
 _fcai_frama_c() {
-    local cur=${COMP_WORDS[COMP_CWORD]} prev=""
-    [ "$COMP_CWORD" -gt 0 ] && prev=${COMP_WORDS[COMP_CWORD-1]}
+    local _fcai_cur _fcai_prev
+    _fcai_words
+    local cur=$_fcai_cur prev=$_fcai_prev
     COMPREPLY=()
     case "$_fcai_argopts" in
         *" $prev "*)
-            case "$prev" in
-                -machdep) COMPREPLY=($(compgen -W "$_fcai_machdeps help" -- "$cur")) ;;
-                -wp-prover|-wp-provers) _fcai_list "$_fcai_provers" "$cur" ;;
-                *) case "$_fcai_fileopts" in *" $prev "*) _fcai_any_file "$cur" ;; esac ;;
-            esac
+            if [ -n "${_fcai_optvals[$prev]+x}" ]; then
+                _fcai_list "${_fcai_optvals[$prev]}" "$cur"
+            else
+                case "$_fcai_fileopts" in *" $prev "*) _fcai_any_file "$cur" ;; esac
+            fi
+            _fcai_colon_trim "$cur"
             return 0 ;;
     esac
     if [[ $cur == -* ]]; then
@@ -98,6 +137,6 @@ _fcai_why3() {
     fi
 }
 
-complete -F _fcai_frama_c frama-c ivette
-complete -F _fcai_why3 why3
+complete -F _fcai_frama_c frama-c ivette frama-c-gui
 complete -F _fcai_frama_c_script frama-c-script
+complete -F _fcai_why3 why3

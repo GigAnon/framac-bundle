@@ -242,14 +242,15 @@ EOS
         else result FAIL "$m-why3" "why3 CLI: --version / config list-provers / prove failed (see $m-why3-* logs)"; fi
         # a WHY3CONFIG set by the caller is used as is: a copy of the generated
         # configuration keeping only the first prover section must be what
-        # 'why3 config list-provers' sees, and WP must still run with it
+        # 'why3 config list-provers' sees (that prover and its variants, e.g.
+        # "Alt-Ergo 2.6.2 (BV)"), and WP must still run with it
         "$fc" --fcai-run sh -c 'cat "$WHY3CONFIG"' 2>/dev/null \
             | awk 'BEGIN{keep=1} /^\[partial_prover\]/{n++; keep=(n==1)} keep' > "$WORK/why3-$m.conf"
         local only; only=$(sed -n 's/^name = "\(.*\)"/\1/p' "$WORK/why3-$m.conf" | head -n1)
         local onlyp; onlyp=$(echo "$only" | tr 'A-Z' 'a-z')
         if [ -n "$only" ] && WHY3CONFIG="$WORK/why3-$m.conf" runl "$m-why3config-list" "$fc" why3 config list-provers \
                 && grep -q "$only" "$LOGS/$m-why3config-list.log" \
-                && [ "$(grep -v '^\$\|^\[rc' "$LOGS/$m-why3config-list.log" | grep -ci 'alt-ergo\|z3\|cvc4\|cvc5')" -eq 1 ] \
+                && [ -z "$(grep -v '^\$\|^\[rc' "$LOGS/$m-why3config-list.log" | grep -v '^ *$' | grep -viF -- "$only")" ] \
                 && WHY3CONFIG="$WORK/why3-$m.conf" runl "$m-why3config-wp" "$fc" frama-c -wp -wp-prover "$onlyp" "$TESTS/wp_ok.c" \
                 && grep -q 'Proved goals' "$LOGS/$m-why3config-wp.log"; then
             result PASS "$m-why3config" "WHY3CONFIG from the environment honoured (why3 and WP see only $only)"
@@ -551,7 +552,9 @@ if "${FC[$INFO_MODE]}" --fcai-completion > "$WORK/completion.bash" 2> "$LOGS/com
     # drive the completion functions the way bash does (no frama-c involved)
     cat > "$WORK/completion-test.sh" <<'EOS'
 . "$1"; T=$2
+COMP_WORDBREAKS=$' \t\n"\'><=;|&(:'
 c() { COMP_WORDS=("$@"); COMP_CWORD=$(( $# - 1 )); COMPREPLY=()
+      COMP_LINE="$*"; COMP_POINT=${#COMP_LINE}
       case "$1" in frama-c-script) _fcai_frama_c_script ;; why3) _fcai_why3 ;; *) _fcai_frama_c ;; esac
       printf '%s\n' "${COMPREPLY[@]}"; }
 fail=0
@@ -563,6 +566,8 @@ chk "kernel option"      -machdep         -- frama-c -machd
 chk "eva option"         -eva             -- frama-c -ev
 chk "opposite option"    -no-unicode      -- frama-c -no-unic
 chk "machdep value"      x86_64           -- frama-c -machdep x86_6
+chk "warn-key value"     annot-error      -- frama-c -kernel-warn-key annot-e
+chk "prover after ':'"   alt-ergo         -- frama-c -wp-prover native:alt
 chk "prover list"        alt-ergo,z3      -- frama-c -wp-prover alt-ergo,z
 chk "C source"           "$T/eva.c"       -- frama-c -eva "$T/ev"
 chk "ivette"             -wp              -- ivette -wp
