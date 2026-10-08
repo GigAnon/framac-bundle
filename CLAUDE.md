@@ -43,6 +43,7 @@ Each step is stamped in `$BUILD_ROOT/stamps`; `FORCE=step` or `FORCE=all` reruns
 | 7 | relocation check | Writes `usr/share/fcai/dune-dir-locations`. Moves a copy; **every** `-print-share-path` entry must exist and contain `libc/`. Parses a C file with `#include`s while the original AppDir is moved away. Runs `-plugins`. |
 | 8 | why3.conf template | `why3 config detect` against the bundled provers (`PATH=usr/bin` only). The AppDir path is replaced by `@APPDIR@`, and `datadir`/`libdir` lines are dropped. |
 | 8c | Python | `WITH_PYTHON=1`: python-build-standalone CPython 3.12 into `usr/lib/fcai-python` (for `frama-c-script`), plus pure-Python PyYAML 6.0.3 (git tag, commit-pinned), trimmed and smoke-tested. |
+| 8d | completion | `lib/gen_completion.py` runs the bundled `frama-c -plugins`, `-kernel-h` and each `-<x>-h`, `-machdep help` and `frama-c-script help`, and fills `lib/completion.bash.in` into `usr/share/fcai/completion/frama-c.bash`. Raw outputs go to `logs/completion-src/`. |
 | 8b | Ivette | Node 22.22.2 (checked against nodejs.org SHASUMS) + corepack/yarn 1. Runs `make -C ivette api` then `make -C ivette dist`. The resulting `dist/linux-unpacked` is imported; `IVETTE_PREBUILT` overrides. |
 | 9 | build-info | Versions, `GLIBC_REQUIRED` (+ `_IVETTE`), `BUILD_ROOTS` (used by the strace test), and a strings scan of embedded build paths (informational only). **Dies** if a `GLIBC_REQUIRED*` > `GLIBC_MAX`, listing the files in `logs/glibc-too-new.txt`. |
 | 10 | self-test | `run-tests.sh` on the AppDir, using a clean `PATH`, from `/tmp`. If only `ivette-*` tests fail, the build still packages, with a warning. |
@@ -102,6 +103,14 @@ Do not "fix" these back. Each one was observed in a real log.
     - The same build FAILed `strace-leaks` on `/fcai-build/py39`: the python3.9 shim dir lived under the build root. The shim is gone.
   - Tests: `<mode>-script` (`help` + `find-fun main tests/`). The mock uses the real 33.0 script (`dev/mock/frama-c-script`, LGPL).
 
+- **Bash completion** (owner, 2026-10-08: "use autocomplete_frama-c from outside the AppImage, or make an improved one"). The upstream `share/autocomplete_frama-c` still ships, unused; ours is generated.
+  - **Self-contained:** everything is baked in, so completing never starts frama-c (an AppImage mount per TAB) and the file works outside the AppImage.
+  - **What it completes:** options, `-no-` opposites, `-machdep` values, comma lists for `-wp-prover`, file arguments, C sources, and `frama-c-script` commands.
+  - **Delivery:** `AppRun --fcai-completion` prints it. `install.sh` writes it to `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/frama-c`, with `frama-c-script` and `ivette` symlinked to it; `--no-completion` skips this, and `--uninstall` removes only files marked `# fcai-completion`.
+  - **Test:** `completion` drives `_fcai_frama_c` / `_fcai_frama_c_script` with `COMP_WORDS`.
+  - **Not yet verified on a real build:** the parser assumes Frama-C's help format ("-opt <arg>" at column 0, "(opposite option is -no-x)", `-plugins` lines ending in "(-x-h)"). Check `logs/completion-src/` and `completion.txt` (option counts) from the next build.
+- **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
+
 ## Design invariants
 
 - **Nothing at run time may point into the build machine.** The checks are:
@@ -121,15 +130,16 @@ Do not "fix" these back. Each one was observed in a real log.
 - `alt-ergo`;
 - Ivette (`mock-ivette.c`: an ELF that starts `frama-c -server-socket` from `PATH`; `IVETTE_MOCK=bad` gives one that never does);
 - `frama-c-script`: the real 33.0 script; `-print-lib-path` prints the baked entry, and `stage/lib/frama-c/lib/analysis-scripts/find_fun.py` is a mock that must be shipped (it uses 3.10-only syntax), and so is `make_machdep/make_machdep.py`, which imports `yaml`. A final scenario runs `run-tests.sh --quick` with a host `python3` stub that reports 3.8 and exits 99 if asked to run a script, and expects `*-script` PASS "(python: bundled)";
+- help output for completion: the mock frama-c answers `-plugins` with the real 33.0 list, `-<x>-h` from `dev/mock/help/*.txt` (written in Frama-C's format), and `-machdep help`;
 - `why3server`: an ELF depending on `libfcaiold.so.1` → `libfcaiold2.so.1`, both linked old-style (2 MiB `p_align`, no separate-code, like focal's libmpc), with an absolute RUNPATH into the build root. The mock frama-c runs it and requires `why3server-ok`, so library loading is exercised in every relocation test and under strace. The old library patching gives misaligned PT_LOADs on these files, which the new check rejects.
 
 The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the workspace glibc (2.38 in the agent workspace); it passes `GLIBC_MAX=<host glibc>` to the build. After the target run it also runs the **glibc scenarios**: with `FCAI_HOST_GLIBC=2.17`, `AppRun`, `run-tests.sh` and `install.sh` must refuse clearly, and a build with `GLIBC_MAX=2.17` must die and list the offending files.
 
-It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, with real Z3/CVC4/cvc5, real gcc relocation and real appimagetool. Expect: build passes, ~106 PASS on the target run, no FAIL, then `glibc scenarios: all ok`. **When a real build reveals a new behaviour, encode it in the mock first.**
+It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, with real Z3/CVC4/cvc5, real gcc relocation and real appimagetool. Expect: build passes, ~108 PASS on the target run, no FAIL, then `glibc scenarios: all ok`. **When a real build reveals a new behaviour, encode it in the mock first.**
 
 ## Open items / next steps
 
-1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). `frama-c-script`: the helpers are now found (real build); the bundled Python is validated by the mock only. Next: a rebuild, expecting `dir-script` PASS "(python: bundled)", `dir-script-yaml` PASS and `strace-leaks` PASS, then `run-tests.sh` on RHEL 9.8.
+1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). `frama-c-script`: the helpers are now found (real build); the bundled Python is validated by the mock only. Next: a rebuild, expecting `dir-script` PASS "(python: bundled)", `dir-script-yaml` PASS, `strace-leaks` PASS and `completion` PASS (check `logs/completion-src/`), then `run-tests.sh` on RHEL 9.8.
 2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display. The target is RHEL 9.8 (glibc 2.34); the 22.04 build failed there on glibc.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);

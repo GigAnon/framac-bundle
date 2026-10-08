@@ -1,0 +1,13 @@
+Plug-in name: WP
+Plug-in shortname: wp
+
+***** LIST OF AVAILABLE OPTIONS:
+
+-wp                 generate proof obligations for all (selected)
+                    properties.
+-wp-prover <dp,...>  prover selection
+-wp-rte             generate RTE guards before WP (opposite option is
+                    -wp-no-rte)
+-wp-timeout <n>     set the timeout (in seconds) for provers
+-wp-par <p>         number of parallel proof process
+-wp-out <dir>       set working directory for generated files

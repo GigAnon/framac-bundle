@@ -1,0 +1,5 @@
+Plug-in name: RteGen
+Plug-in shortname: rte
+
+-rte                generate annotations for runtime error checking
+-rte-select <f,...> select <f> for annotation

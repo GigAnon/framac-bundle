@@ -121,6 +121,7 @@ warn() { printf '\033[33mWARNING: %s\033[0m\n' "$*"; }
 export_logs() {
     mkdir -p "$OUT_DIR/logs" 2>/dev/null || return 0
     cp "$LOGDIR"/*.log "$LOGDIR"/*.txt "$OUT_DIR/logs/" 2>/dev/null || true
+    [ -d "$LOGDIR/completion-src" ] && cp -r "$LOGDIR/completion-src" "$OUT_DIR/logs/" 2>/dev/null || true
     if [ -n "${HOST_UID:-}" ]; then chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$OUT_DIR" 2>/dev/null || true; fi
 }
 die()  { printf '\033[31mERROR: %s\033[0m\n' "$*"; trap - ERR; export_logs; echo "logs copied to $OUT_DIR/logs"; exit 1; }
@@ -585,6 +586,15 @@ print("bundled python", sys.version.split()[0], "+ PyYAML", yaml.__version__)' \
     echo "bundled python: $(du -sh "$P" | cut -f1)"
 fi
 
+# ------------------------------------------- 8d. bash completion (generated)
+say "bash completion"
+mkdir -p "$APPDIR/usr/share/fcai/completion"
+rm -rf "$LOGDIR/completion-src"
+env -i HOME="$BUILD_ROOT" PATH=/usr/bin:/bin python3 "$SRC_DIR/lib/gen_completion.py" "$APPDIR/AppRun" \
+    "$APPDIR/usr/share/fcai/completion/frama-c.bash" --provers "$PROVERS" --dump-dir "$LOGDIR/completion-src" \
+    | tee "$LOGDIR/completion.txt"
+bash -n "$APPDIR/usr/share/fcai/completion/frama-c.bash" || die "generated completion script has a syntax error"
+
 # -------------------------------------------------------- 9. build-info
 say "build info"
 glibc_floor=$(find "$APPDIR" -path "$APPDIR/usr/lib/ivette" -prune -o -type f -exec sh -c 'head -c4 "$1" | grep -q ELF && objdump -T "$1" 2>/dev/null' _ {} \; \
@@ -678,6 +688,7 @@ tar -C "$OUT_DIR" -cf "$OUT_DIR/$DIST_NAME.tar" "$DIST_NAME"
 cp "$LOG" "$OUT_DIR/"
 latest=$(ls -1t "$LOGDIR"/fcai-test-report-*.txt 2>/dev/null | head -n1 || true)
 if [ -n "$latest" ]; then cp "$latest" "$OUT_DIR/selftest-report.txt"; fi
+export_logs
 if [ -n "${HOST_UID:-}" ]; then chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$OUT_DIR"; fi
 
 say "done"

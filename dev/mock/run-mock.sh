@@ -62,6 +62,9 @@ for h in stdio.h string.h stdint.h limits.h stdlib.h; do
 done
 
 install -m 755 "$MOCKSRC/frama-c-script" "$STAGE/bin/frama-c-script"
+# help texts in Frama-C's format (-plugins is the real 33.0 list), for the
+# completion generator
+mkdir -p "$STAGE/share/frama-c/mock-help"; cp "$MOCKSRC"/help/*.txt "$STAGE/share/frama-c/mock-help/"
 # the real 33.0 frama-c-script runs $(frama-c -print-lib-path)/analysis-scripts/*.py
 install -D -m 755 "$MOCKSRC/find_fun.py" "$STAGE/lib/frama-c/lib/analysis-scripts/find_fun.py"
 install -D -m 755 "$MOCKSRC/make_machdep.py" "$STAGE/lib/frama-c/lib/make_machdep/make_machdep.py"

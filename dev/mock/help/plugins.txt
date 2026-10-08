@@ -1,0 +1,45 @@
+ACSL importer       external ACSL files importer (-acsl-import-h)
+Alias Analysis      Lightweight May-Alias Analysis (experimental) (-alias-h)
+Aorai               verification of behavioral properties (experimental)
+                    (-aorai-h)
+Callgraph           automatically compute the callgraph of the program. Using
+                    Eva might improve the precision of this plug-in (-cg-h)
+Dive                An interactive imprecision graph generator for Eva.
+                    (-dive-h)
+Eva                 automatically computes variation domains for the
+                    variables of the program (-eva-h)
+From analysis       functional dependencies (-from-h)
+Impact              impact analysis (-impact-h)
+Inout               operational, imperative and all kinds of inputs/outputs
+                    (-inout-h)
+Instantiate         Overrides standard library functions (-instantiate-h)
+Loop                Find maximum number of iterations in loops (-loop-h)
+Markdown report     generates a report in markdown format (-mdr-h)
+MetAcsl             This plugin translates the metaproperties in the code to
+                    native ACSL annotationsthat can then be checked.
+                    (-meta-h)
+Metrics             syntactic metrics (-metrics-h)
+Mthread             Experimental tools for multi-threaded programs (-mt-h)
+Nonterm             Warns when definitively non-terminating functions/loops
+                    are detected (e.g. reachable functions with unreachable
+                    returns). (-nonterm-h)
+Obfuscator          obfuscator for confidential code (-obfuscator-h)
+Occurrence          automatically computes where variables are used
+                    (-occurrence-h)
+Pdg                 Program Dependence Graph (-pdg-h)
+Reduction           Generate ACSL annotations from Eva information (-reduc-h)
+Region Analysis     Memory Region Analysis (experimental) (-region-h)
+Report              Properties Status Report (-report-h)
+RteGen              generates annotations for runtime error checking (-rte-h)
+Scope               data dependencies higher level functions (-scope-h)
+Security-slicing    security slicing (experimental, undocumented)
+                    (-security-slicing-h)
+Semantic Constant Folding  propagates constants semantically (-scf-h)
+Server              Frama-C Request Server (experimental) (-server-h)
+Server TypeScript API  Generate TypeScript API for Server (-server-tsc-h)
+Slicing             code slicer (-slicing-h)
+Sparecode           code cleaner (-sparecode-h)
+Studia              Tools for Eva case studies (-studia-h)
+Volatile            support for volatile accesses and calls through function
+                    pointers (-volatile-h)
+WP                  Proof by Weakest Precondition Calculus (-wp-h)

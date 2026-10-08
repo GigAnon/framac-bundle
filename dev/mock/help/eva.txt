@@ -1,0 +1,12 @@
+Plug-in name: Eva
+Plug-in shortname: eva
+
+***** LIST OF AVAILABLE OPTIONS:
+
+-eva                automatically computes variation domains for the
+                    variables of the program
+-eva-precision <n>  meta-option that automatically sets up some Eva
+                    parameters for a quick configuration of an analysis
+-eva-slevel <n>     superposes up to <n> states when unrolling control flow
+-eva-show-progress  show progression messages (opposite option is
+                    -eva-no-show-progress)

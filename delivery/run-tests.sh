@@ -516,6 +516,40 @@ if [ $QUICK = 0 ]; then
     fi
 fi
 
+echo "== bash completion"
+if "${FC[$INFO_MODE]}" --fcai-completion > "$WORK/completion.bash" 2> "$LOGS/completion.log" \
+        && head -n1 "$WORK/completion.bash" | grep -q '^# fcai-completion'; then
+    # drive the completion functions the way bash does (no frama-c involved)
+    cat > "$WORK/completion-test.sh" <<'EOS'
+. "$1"; T=$2
+c() { COMP_WORDS=("$@"); COMP_CWORD=$(( $# - 1 )); COMPREPLY=()
+      case "$1" in frama-c-script) _fcai_frama_c_script ;; *) _fcai_frama_c ;; esac
+      printf '%s\n' "${COMPREPLY[@]}"; }
+fail=0
+chk() { # DESC EXPECTED -- WORDS...
+    local d=$1 e=$2; shift 3
+    if c "$@" | grep -qxF -- "$e"; then echo "ok   $d"; else echo "BAD  $d: '$e' not in: $(c "$@" | head -n 5 | tr '\n' ' ')"; fail=1; fi; }
+chk "option prefix"      -wp-prover       -- frama-c -wp-pr
+chk "kernel option"      -machdep         -- frama-c -machd
+chk "eva option"         -eva             -- frama-c -ev
+chk "opposite option"    -no-unicode      -- frama-c -no-unic
+chk "machdep value"      x86_64           -- frama-c -machdep x86_6
+chk "prover list"        alt-ergo,z3      -- frama-c -wp-prover alt-ergo,z
+chk "C source"           "$T/eva.c"       -- frama-c -eva "$T/ev"
+chk "ivette"             -wp              -- ivette -wp
+chk "script command"     find-fun         -- frama-c-script find-f
+echo "options: $(echo $_fcai_opts | wc -w)"
+exit $fail
+EOS
+    if bash "$WORK/completion-test.sh" "$WORK/completion.bash" "$TESTS" >> "$LOGS/completion.log" 2>&1; then
+        result PASS completion "bash completion works ($(sed -n 's/^options: //p' "$LOGS/completion.log") options; frama-c, ivette, frama-c-script)"
+    else
+        result FAIL completion "bash completion: $(grep -c '^BAD' "$LOGS/completion.log") check(s) failed (see completion log)"
+    fi
+else
+    result FAIL completion "--fcai-completion did not print a completion script"
+fi
+
 echo "== HOME usage"
 (cd "$HOME" && find . -mindepth 1 | sort) > "$WORK/home-files.txt"
 result INFO home-writes "$(wc -l < "$WORK/home-files.txt") entries created under \$HOME (listed in report)"

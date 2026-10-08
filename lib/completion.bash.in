@@ -1,0 +1,79 @@
+# fcai-completion: bash completion for the offline Frama-C bundle
+# (frama-c, ivette, frama-c-script).  Generated at build time from the
+# bundled frama-c's own help by lib/gen_completion.py: completing never
+# starts frama-c, and this file works outside the AppImage.
+#
+# Load it with bash-completion (install.sh puts it in
+# ~/.local/share/bash-completion/completions/), or by hand:
+#     source <(frama-c --fcai-completion)
+
+_fcai_opts='@OPTS@'
+_fcai_argopts=' @ARGOPTS@ '
+_fcai_fileopts=' @FILEOPTS@ '
+_fcai_machdeps='@MACHDEPS@'
+_fcai_provers='@PROVERS@'
+_fcai_script_cmds='@SCRIPT_CMDS@'
+
+# C sources (and the usual Frama-C inputs) plus directories
+_fcai_sources() {
+    local cur=$1 f
+    local IFS=$'\n'
+    compopt -o filenames 2>/dev/null
+    for f in $(compgen -d -- "$cur"); do COMPREPLY+=("$f"); done
+    for f in $(compgen -f -- "$cur"); do
+        [ -d "$f" ] && continue
+        case "$f" in
+            *.c|*.h|*.i|*.ci|*.cc|*.json|*.sav|*.acsl) COMPREPLY+=("$f") ;;
+        esac
+    done
+}
+
+# any file or directory
+_fcai_any_file() {
+    local IFS=$'\n'
+    compopt -o filenames 2>/dev/null
+    COMPREPLY+=($(compgen -f -- "$1"))
+}
+
+# comma-separated list: complete the last element
+_fcai_list() { # WORDS CUR
+    local prefix="" last=$2
+    case "$2" in *,*) prefix=${2%,*},; last=${2##*,} ;; esac
+    COMPREPLY=($(compgen -P "$prefix" -W "$1" -- "$last"))
+    compopt -o nospace 2>/dev/null
+}
+
+_fcai_frama_c() {
+    local cur=${COMP_WORDS[COMP_CWORD]} prev=""
+    [ "$COMP_CWORD" -gt 0 ] && prev=${COMP_WORDS[COMP_CWORD-1]}
+    COMPREPLY=()
+    case "$_fcai_argopts" in
+        *" $prev "*)
+            case "$prev" in
+                -machdep) COMPREPLY=($(compgen -W "$_fcai_machdeps help" -- "$cur")) ;;
+                -wp-prover|-wp-provers) _fcai_list "$_fcai_provers" "$cur" ;;
+                *) case "$_fcai_fileopts" in *" $prev "*) _fcai_any_file "$cur" ;; esac ;;
+            esac
+            return 0 ;;
+    esac
+    if [[ $cur == -* ]]; then
+        COMPREPLY=($(compgen -W "$_fcai_opts" -- "$cur"))
+    else
+        _fcai_sources "$cur"
+    fi
+}
+
+_fcai_frama_c_script() {
+    local cur=${COMP_WORDS[COMP_CWORD]}
+    COMPREPLY=()
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=($(compgen -W "$_fcai_script_cmds" -- "$cur"))
+    elif [ "${COMP_WORDS[1]}" = list-functions ] && [[ $cur == -* ]]; then
+        COMPREPLY=($(compgen -W "$_fcai_opts" -- "$cur"))
+    else
+        _fcai_any_file "$cur"
+    fi
+}
+
+complete -F _fcai_frama_c frama-c ivette
+complete -F _fcai_frama_c_script frama-c-script

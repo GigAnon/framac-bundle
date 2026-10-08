@@ -4,7 +4,7 @@ exe=$(readlink -f "$0"); prefix=$(dirname "$(dirname "$exe")")
 baked="$prefix/@STAGE@/share/frama-c/share"; share="$baked"   # like the relocatable install
 IFS=: read -ra L <<< "${DUNE_DIR_LOCATIONS:-}"
 for ((j=0;j+2<${#L[@]};j+=3)); do [ "${L[$j]}:${L[$j+1]}" = "frama-c:share" ] && { share="${L[$j+2]}/share"; break; }; done
-[ -d "$share/machdeps" ] || { case " $* " in *" -version "*|*" -plugins "*|*" -print-share-path "*) ;; *) echo "[kernel] User Error: Could not find directory machdeps in Frama-C share"; exit 1;; esac; }
+[ -d "$share/machdeps" ] || { case " $* " in *" -version "*|*" -plugins "*|*" -print-share-path "*|*"-h "*) ;; *) echo "[kernel] User Error: Could not find directory machdeps in Frama-C share"; exit 1;; esac; }
 args=("$@"); prover=alt-ergo; files=(); mode=""
 for ((i=0;i<${#args[@]};i++)); do a=${args[$i]}
   case "$a" in
@@ -12,7 +12,9 @@ for ((i=0;i<${#args[@]};i++)); do a=${args[$i]}
     -version) echo "33.0 (Arsenic) [MOCK]"; exit 0;;
     -print-share-path) echo "$share"; echo "$baked"; exit 0;;
     -print-lib-path) echo "$prefix/@STAGE@/lib/frama-c/lib"; exit 0;;   # real 33.0: baked entry only
-    -plugins) printf 'Eva\nRteGen\nWP\n'; exit 0;;
+    -plugins) cat "$share/../mock-help/plugins.txt"; exit 0;;   # the real 33.0 list
+    -machdep) [ "${args[$((i+1))]:-}" = help ] && { echo "[kernel] supported machines are gcc_x86_16 gcc_x86_32 gcc_x86_64 ppc_32 x86_16 x86_32 x86_64 msvc_x86_64 (default is x86_64)."; exit 0; }; i=$((i+1));;
+    -*-h) h=${a#-}; h=${h%-h}; if [ -f "$share/../mock-help/$h.txt" ]; then cat "$share/../mock-help/$h.txt"; else printf -- '-%s               mock option of %s\n' "$h" "$h"; fi; exit 0;;
     -wp-detect) grep -A3 partial_prover "$WHY3CONFIG" | sed -n 's/name = "\(.*\)"/[wp] Prover \1/p'; exit 0;;
     -wp) mode=wp;; -eva) mode=eva;;
     -wp-prover) i=$((i+1)); prover=${args[$i]};;

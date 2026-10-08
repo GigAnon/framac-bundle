@@ -10,6 +10,8 @@
 #                  (needed when FUSE is unavailable; automatic in that case)
 #   --appimage     force AppImage mode even if FUSE seems unavailable
 #   --no-links     do not create symlinks
+#   --no-completion  do not install the bash completion
+#                  (default: ${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions)
 #
 # Commands linked into BINDIR: frama-c, frama-c-script, ivette, z3, cvc4, and cvc5 /
 # alt-ergo when bundled.  Everything is relative to DIR: moving DIR only requires
@@ -23,7 +25,8 @@ BASE=$(basename "$APPIMAGE" .AppImage)          # e.g. Frama-C-33.0-x86_64
 VERSION=$(echo "$BASE" | sed -n 's/^Frama-C-\([^-]*\)-.*/\1/p')
 DIR="$HOME/.local/opt/frama-c-${VERSION:-bundle}"
 BIN="$HOME/.local/bin"
-MODE=auto LINKS=1 UNINSTALL=0
+MODE=auto LINKS=1 UNINSTALL=0 COMPLETION=1
+COMPDIR="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -32,6 +35,7 @@ while [ $# -gt 0 ]; do
         --extract) MODE=extract ;;
         --appimage) MODE=appimage ;;
         --no-links) LINKS=0 ;;
+        --no-completion) COMPLETION=0 ;;
         --uninstall) UNINSTALL=1 ;;
         -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -52,6 +56,12 @@ if [ $UNINSTALL = 1 ]; then
         l="$BIN/$c"
         if [ -L "$l" ]; then
             case "$(readlink "$l")" in "$DIR"/*) rm -f "$l"; echo "removed $l" ;; esac
+        fi
+    done
+    for c in frama-c frama-c-script ivette; do
+        f="$COMPDIR/$c"
+        if [ -L "$f" ] || { [ -f "$f" ] && head -n1 "$f" | grep -q '^# fcai-completion'; }; then
+            rm -f "$f"; echo "removed $f"
         fi
     done
     [ -d "$DIR" ] && rm -rf "$DIR" && echo "removed $DIR"
@@ -103,5 +113,18 @@ if [ $LINKS = 1 ]; then
         *":$BIN:"*) ;;
         *) echo "note: $BIN is not in PATH; add:  export PATH=\"$BIN:\$PATH\"" ;;
     esac
+fi
+if [ $COMPLETION = 1 ]; then
+    mkdir -p "$COMPDIR"
+    if "$TARGET" --fcai-completion > "$COMPDIR/frama-c.tmp" 2>/dev/null && head -n1 "$COMPDIR/frama-c.tmp" | grep -q '^# fcai-completion'; then
+        mv -f "$COMPDIR/frama-c.tmp" "$COMPDIR/frama-c"
+        # bash-completion loads completions by command name
+        ln -sfn frama-c "$COMPDIR/frama-c-script"; ln -sfn frama-c "$COMPDIR/ivette"
+        echo "completion: $COMPDIR/frama-c (+ frama-c-script, ivette)"
+        echo "           loaded by bash-completion in new shells; without it, add to ~/.bashrc:"
+        echo "           . $COMPDIR/frama-c"
+    else
+        rm -f "$COMPDIR/frama-c.tmp"; echo "note: no bash completion in this bundle"
+    fi
 fi
 echo "check:     frama-c -version     (or: $TARGET -version)"

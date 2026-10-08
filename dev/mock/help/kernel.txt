@@ -1,0 +1,39 @@
+Plug-in name: Kernel
+Plug-in shortname: kernel
+Description: General options provided by the Frama-C kernel.
+
+Most options of the form '-option-name' and without any parameter
+have an opposite with the name '-no-option-name'.
+
+***** LIST OF AVAILABLE OPTIONS:
+
+*** GETTING INFORMATION
+
+-help, -h           display a general help
+-plugins            print the list of plug-ins
+-print-share-path   print the path of Frama-C share directory
+-version            print the version of Frama-C
+
+*** MACHINE DEPENDENCIES
+
+-machdep <machine>  use <machine> as the current machine dependent
+                    configuration. See "-machdep help" for a list
+-unicode            use utf8 in messages (set by default, opposite option is
+                    -no-unicode)
+
+*** PREPROCESSING
+
+-cpp-extra-args <args>  additional arguments passed to the preprocessor
+-json-compilation-database <path>  use the compilation database <path>
+
+*** SAVING AND LOADING
+
+-save <filename>    at exit, save the session into file <filename>
+-load <filename>    load a previously-saved session from file <filename>
+
+*** SEQUENCING
+
+-then               parse options before `-then' and execute Frama-C
+                    accordingly, then parse options after it
+-then-last          like -then, but the next actions are executed on the
+                    last project

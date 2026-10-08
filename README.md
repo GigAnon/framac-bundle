@@ -6,7 +6,8 @@ These scripts build a single AppImage containing:
 * **`frama-c-script`**, with its Python helpers and a bundled **Python 3.12 + PyYAML**;
 * **Ivette**, the Electron GUI, built from the Frama-C sources;
 * **Why3 1.8.2** with the provers **Z3 4.13.0, CVC4 1.8, cvc5 1.2.1 and Alt-Ergo 2.6.2**;
-* **a C preprocessor** (the `gcc` driver and `cc1`).
+* **a C preprocessor** (the `gcc` driver and `cc1`);
+* **bash completion** for `frama-c`, `ivette` and `frama-c-script`, generated from the bundled Frama-C's own help.
 
 The AppImage:
 
@@ -44,7 +45,7 @@ tar xf frama-c-33.0-offline-x86_64.tar && cd frama-c-33.0-offline-x86_64
 ./install.sh            # ~/.local/opt + symlinks in ~/.local/bin
 ```
 
-The installed commands are `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc4`, `cvc5` and `alt-ergo`. `README.md` inside the archive has the details: `--dir`, `--bin`, `--extract` for machines without FUSE, and `--uninstall`.
+The installed commands are `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc4`, `cvc5` and `alt-ergo`. `install.sh` also installs the bash completion into `~/.local/share/bash-completion/completions/`. Without installing, `source <(./Frama-C-*.AppImage --fcai-completion)` loads it. `README.md` inside the archive has the details: `--dir`, `--bin`, `--extract` for machines without FUSE, and `--uninstall`.
 
 ## How path independence is achieved (and checked)
 
@@ -64,7 +65,7 @@ The installed commands are `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc4`, 
 
 * **Prerequisites:** the host glibc.
 * **WP:** each prover on its own (each must prove something Qed can't), all provers together (every goal proved), and a negative proof that must fail.
-* **Other tools:** Eva with the libc headers, and `frama-c-script` (`find-fun`, plus `make-machdep --help`, which needs PyYAML).
+* **Other tools:** Eva with the libc headers, `frama-c-script` (`find-fun`, plus `make-machdep --help`, which needs PyYAML), and the bash completion.
 * **Locations:** the bundle mounted, extracted, copied, renamed, from a path containing spaces, and with the original deleted.
 * **Isolation:** a concurrent job, a job without network access (`unshare -rn`), and an `strace` of every file touched, which fails if anything under the build paths, or a host compiler, prover or why3/frama-c install, is used.
 
@@ -75,6 +76,7 @@ build.sh                  the build (steps are stamped and resumable)
 build-in-container.sh     runs build.sh in ubuntu:20.04 via docker/podman
 lib/gen_static_exe.py     generates the statically linked frama-c stanza
 lib/patch_script.py       makes frama-c-script use the first -print-share/lib-path line
+lib/gen_completion.py     generates the bash completion from frama-c's help (template: lib/completion.bash.in)
 lib/bundle_libs.py        copies shared libraries, sets relative RPATHs on executables, checks alignment
 appdir/AppRun             multi-call entry point (frama-c, frama-c-script, ivette, z3, cvc4, cvc5, alt-ergo)
 appdir/fcai-wrappers/     'frama-c' as seen by Ivette

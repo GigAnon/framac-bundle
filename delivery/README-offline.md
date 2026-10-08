@@ -21,6 +21,7 @@ sha256sum -c SHA256SUMS
 ./install.sh                       # ~/.local/opt/frama-c-<version> + links in ~/.local/bin
 ./install.sh --dir /opt/fc --bin /usr/local/bin   # anywhere else
 ./install.sh --extract             # unpacked directory instead of the AppImage
+./install.sh --no-completion       # do not install the bash completion
 ./install.sh --uninstall           # removes what was installed
 ```
 
@@ -40,6 +41,25 @@ The installer creates symlinks `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc
 ./Frama-C-*.AppImage --fcai-info    # versions, required glibc
 ./Frama-C-*.AppImage --fcai-help
 ```
+
+## Bash completion
+
+`install.sh` installs a completion for `frama-c`, `ivette` and `frama-c-script` into `~/.local/share/bash-completion/completions/`. New shells load it when the bash-completion package is installed. Otherwise, add the line that `install.sh` prints to `~/.bashrc`. Without installing anything:
+
+```sh
+source <(./Frama-C-*.AppImage --fcai-completion)
+```
+
+It was generated from this Frama-C's own help. It completes:
+* every kernel and plug-in option, including the `-no-…` forms;
+* `-machdep` values;
+* prover lists for `-wp-prover` (comma-separated: `alt-ergo,z3`);
+* file arguments and C sources;
+* `frama-c-script` commands.
+
+Pressing TAB never starts Frama-C.
+
+The upstream `autocomplete_frama-c` script is also shipped, in `usr/share/frama-c/share/` inside the AppImage.
 
 ## How provers are configured
 
