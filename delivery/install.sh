@@ -12,7 +12,7 @@
 #   --appimage     force AppImage mode even if FUSE seems unavailable
 #   --no-links     do not create symlinks
 #
-# Commands linked into BINDIR: frama-c, frama-c-script, ivette, z3, cvc4, and cvc5 /
+# Commands linked into BINDIR: frama-c, frama-c-script, ivette, why3, z3, cvc4, and cvc5 /
 # alt-ergo when bundled, plus setup_completion.sh: nothing is written to any
 # user's home besides DIR/BINDIR; each user who wants bash completion runs
 # setup_completion.sh (DIR/frama-c-completion.bash is linked from their
@@ -54,7 +54,7 @@ case "$DIR" in
     *" "*) echo "warning: DIR contains spaces; this is not recommended" >&2 ;;
 esac
 
-CMDS="frama-c frama-c-script ivette z3 cvc4 cvc5 alt-ergo setup_completion.sh"
+CMDS="frama-c frama-c-script ivette why3 z3 cvc4 cvc5 alt-ergo setup_completion.sh"
 
 if [ $UNINSTALL = 1 ]; then
     [ -d "$DIR" ] && DIR=$(cd "$DIR" && pwd)

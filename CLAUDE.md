@@ -62,7 +62,14 @@ Do not "fix" these back. Each one was observed in a real log.
   - `DUNE_DIR_LOCATIONS` (always set by `AppRun`, searched first);
   - the symlink alias `usr/fcai-build/stage → ..`, because Frama-C builds the libc `-I` path from the *baked* entry (it failed until the alias was added).
 - **`DUNE_DIR_LOCATIONS` format.** `pkg:section:dir` triples joined by `:`, so bundle paths cannot contain `:`. dune-site prepends env entries before the encoded one. An unset `DUNE_OCAML_HARDCODED` is only a problem if plug-ins are dynlinked, which they never are here.
-- **Why3 runs provers through `$WHY3LIB/why3server`.** It is ENOENT if not shipped. `WHY3DATA`/`WHY3LIB` env vars override Why3's `Config`. The `why3` CLI is **not** shipped: its subcommands are dynlinked `.cmxs` files from the absolute opam `Config.libdir`. The prover config is a template instead.
+- **Why3 runs provers through `$WHY3LIB/why3server`.** It is ENOENT if not shipped. `WHY3DATA`/`WHY3LIB` env vars override Why3's `Config`. The prover config is a template, filled in per location.
+- **The `why3` CLI** (owner, 2026-10-08: "add why3 to bin/") is now shipped as `usr/bin/why3`, the opam binary, which gets an RPATH from `bundle_libs`.
+  - Its subcommands and parsers are `.cmxs` files dynlinked from `Config.libdir/{commands,plugins}`. They are copied to `usr/lib/why3/{commands,plugins}`, which `WHY3LIB` points to. The list goes to `logs/why3-files.txt`, and the build dies if `commands/` is empty.
+  - `AppRun why3` runs it with `setup_env`, and `install.sh` links it.
+  - Test `<mode>-why3`: `--version`, `config list-provers`, and `why3 prove -P <first bundled prover> tests/why3_ok.why` must say Valid.
+  - **Not yet verified on a real build:** that the opam `.cmxs` dynlink fine from the bundle. Check the `<mode>-why3` logs from the next build.
+- **`WHY3CONFIG` from the environment is honoured** (a colleague's request, 2026-10-08). `setup_env` used to always replace it with the generated configuration. Now `FCAI_WHY3CONFIG` wins first, then a non-empty `WHY3CONFIG` (with a warning if it is unreadable), then the generated one. Ivette's inner frama-c inherits the outer choice.
+  - Test `<mode>-why3config`: a copy of the generated configuration keeping only the first prover must be all that `why3 config list-provers` sees, and WP must run with that prover. The mock frama-c now requires the prover to be declared in `WHY3CONFIG`, as real WP does, and the old AppRun fails this test.
 - **`why3 config detect`** lists Alt-Ergo 2.6.2, CVC4 1.8, CVC5 1.2.1 and Z3 4.13.0 (plus their variants).
 - **`-wp-detect` does not exist in Frama-C 33.** The test SKIPs it.
 - **WP on `delivery/tests/wp_ok.c`, run with `-wp-rte`:**
@@ -105,7 +112,7 @@ Do not "fix" these back. Each one was observed in a real log.
 
 - **Bash completion** (owner, 2026-10-08: "use autocomplete_frama-c from outside the AppImage, or make an improved one"). The upstream `share/autocomplete_frama-c` still ships, unused; ours is generated.
   - **Self-contained:** everything is baked in, so completing never starts frama-c (an AppImage mount per TAB) and the file works outside the AppImage.
-  - **What it completes:** options, `-no-` opposites, `-machdep` values, comma lists for `-wp-prover`, file arguments, C sources, and `frama-c-script` commands.
+  - **What it completes:** options, `-no-` opposites, `-machdep` values, comma lists for `-wp-prover`, file arguments, C sources, `frama-c-script` commands, and `why3` commands (from the shipped `commands/*.cmxs`), `-P` provers and `.why`/`.mlw` files.
   - **Delivery** (owner: "install.sh must not copy it into the user's home, the install user is often root"):
     - `install.sh` writes nothing outside DIR/BIN. It stores `DIR/frama-c-completion.bash` (from `--fcai-completion`) and `DIR/setup_completion.sh`, and links the latter into BIN.
     - Each user runs `setup_completion.sh`, which finds the file next to itself through `readlink -f`. It symlinks it into `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/frama-c`, plus `frama-c-script` and `ivette` → `frama-c`. Without bash-completion it adds a marked source line to `~/.bashrc` (`--no-bashrc` skips this).
@@ -130,7 +137,7 @@ Do not "fix" these back. Each one was observed in a real log.
 
 `run-mock.sh [WORKDIR]` stamps steps 0–4 as done, installs a fake `opam`, and fakes:
 - the stage (`frama-c-static.in`: mimics `-print-share-path` with the baked second entry, `DUNE_DIR_LOCATIONS` handling, libc taken from the *baked* entry, the why3server requirement, prover calls through `PATH`);
-- the Why3 CLI (`why3.in`);
+- the Why3 CLI (`why3.in`): it honours `WHY3LIB`/`WHY3DATA` (with baked build paths as fallback), refuses subcommands whose `$WHY3LIB/commands/<cmd>.cmxs` is missing, and its `prove` resolves the prover through `WHY3CONFIG` and runs the bundled `why3server`;
 - `alt-ergo`;
 - Ivette (`mock-ivette.c`: an ELF that starts `frama-c -server-socket` from `PATH`; `IVETTE_MOCK=bad` gives one that never does);
 - `frama-c-script`: the real 33.0 script; `-print-lib-path` prints the baked entry, and `stage/lib/frama-c/lib/analysis-scripts/find_fun.py` is a mock that must be shipped (it uses 3.10-only syntax), and so is `make_machdep/make_machdep.py`, which imports `yaml`. A final scenario runs `run-tests.sh --quick` with a host `python3` stub that reports 3.8 and exits 99 if asked to run a script, and expects `*-script` PASS "(python: bundled)";
@@ -141,11 +148,11 @@ The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the wo
 
 The last scenarios check that `install.sh` leaves the installer's `$HOME` empty, and that another user's `setup_completion.sh` installs links that complete, then uninstalls them.
 
-It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, with real Z3/CVC4/cvc5, real gcc relocation and real appimagetool. Expect: build passes, ~108 PASS on the target run, no FAIL, then `glibc scenarios: all ok`. **When a real build reveals a new behaviour, encode it in the mock first.**
+It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, with real Z3/CVC4/cvc5, real gcc relocation and real appimagetool. Expect: build passes, ~116 PASS on the target run, no FAIL, then `glibc scenarios: all ok`. **When a real build reveals a new behaviour, encode it in the mock first.**
 
 ## Open items / next steps
 
-1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). `frama-c-script`: the helpers are now found (real build); the bundled Python is validated by the mock only. Next: a rebuild, expecting `dir-script` PASS "(python: bundled)", `dir-script-yaml` PASS, `strace-leaks` PASS and `completion` PASS (check `logs/completion-src/`), then `run-tests.sh` on RHEL 9.8.
+1. **The `ubuntu:20.04` build is green** (self-test: 0 FAIL, 1 expected WARN). `frama-c-script`: the helpers are now found (real build); the bundled Python is validated by the mock only. Next: a rebuild, expecting `dir-script` PASS "(python: bundled)", `dir-script-yaml` PASS, `strace-leaks` PASS and `completion`, `dir-why3` and `dir-why3config` PASS (check `logs/completion-src/` and `logs/why3-files.txt`), then `run-tests.sh` on RHEL 9.8.
 2. **Target-side checks not yet run on a real offline machine:** FUSE mount, `unshare -rn`, Ivette with a real display. The target is RHEL 9.8 (glibc 2.34); the 22.04 build failed there on glibc.
 3. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);

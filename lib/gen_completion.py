@@ -79,9 +79,18 @@ def main():
 
     wp_provers = set(provers.split()) | {"native:alt-ergo", "script", "tip", "none"}
 
+    # why3 CLI sub-commands: the .cmxs shipped in usr/lib/why3/commands
+    cmd_dir = os.path.join(os.path.dirname(os.path.abspath(apprun)), "usr", "lib", "why3", "commands")
+    why3_cmds = set()
+    if os.path.isdir(cmd_dir):
+        for f in os.listdir(cmd_dir):
+            if f.endswith(".cmxs"):
+                why3_cmds.add(re.sub(r"^why3", "", f[:-5]))
+
     vals = {
         "OPTS": words(opts), "ARGOPTS": words(argopts), "FILEOPTS": words(fileopts),
         "MACHDEPS": words(machdeps), "PROVERS": words(wp_provers), "SCRIPT_CMDS": words(script_cmds),
+        "WHY3_CMDS": words(why3_cmds), "WHY3_PROVERS": words(set(provers.split())),
     }
     for k, v in vals.items():
         assert "'" not in v, k
@@ -92,8 +101,8 @@ def main():
     with open(out, "w") as f:
         f.write(tpl)
     print("completion: %d options (%d with an argument, %d with a file argument), "
-          "%d plug-in help options, %d machdeps, %d frama-c-script commands"
-          % (len(opts), len(argopts), len(fileopts), len(help_opts), len(machdeps), len(script_cmds)))
+          "%d plug-in help options, %d machdeps, %d frama-c-script commands, %d why3 commands"
+          % (len(opts), len(argopts), len(fileopts), len(help_opts), len(machdeps), len(script_cmds), len(why3_cmds)))
 
 
 if __name__ == "__main__":

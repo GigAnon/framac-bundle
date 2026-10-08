@@ -70,7 +70,10 @@ install -D -m 755 "$MOCKSRC/find_fun.py" "$STAGE/lib/frama-c/lib/analysis-script
 install -D -m 755 "$MOCKSRC/make_machdep.py" "$STAGE/lib/frama-c/lib/make_machdep/make_machdep.py"
 
 # --- fake Why3 CLI / data / libdir, fake alt-ergo ------------------------------
-mkdir -p "$W/why3data/drivers" "$W/why3lib"
+mkdir -p "$W/why3data/drivers" "$W/why3lib/commands" "$W/why3lib/plugins"
+# the CLI's sub-commands / parsers are .cmxs dynlinked from libdir
+for c in config prove replay session; do echo "mock cmxs" > "$W/why3lib/commands/$c.cmxs"; done
+echo "mock cmxs" > "$W/why3lib/plugins/tptp.cmxs"
 echo "(* mock driver *)" > "$W/why3data/drivers/z3.drv"
 # why3server: an ELF depending on libraries laid out like ubuntu:20.04's
 # libmpc.so.3 (old binutils: 2 MiB p_align, no separate-code), with an

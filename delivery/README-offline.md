@@ -6,7 +6,7 @@ This bundle contains one file, `Frama-C-<version>-x86_64.AppImage`, which holds 
 * **`frama-c-script`.** Frama-C's helper commands (`find-fun`, `list-files`, `make-machdep`, `summary`, …), with their Python scripts.
 * **Python 3.12 with PyYAML.** Only `frama-c-script` uses it; the analysis scripts need Python ≥ 3.10, and the host's Python is not used.
 * **Ivette.** The Frama-C GUI, an Electron app, which replaces the GTK GUI removed in Frama-C 33.
-* **Why3.** Linked into Frama-C as a library, together with its data files.
+* **Why3.** Linked into Frama-C as a library, and also available as the `why3` command (`why3 prove`, `why3 config`, `why3 replay`, …), together with its data files.
 * **Provers.** Z3, CVC4 and, when they were included in the build, cvc5 and Alt-Ergo.
 * **A C preprocessor.** The `gcc` driver and `cc1` only, so Frama-C does not rely on the host having gcc.
 
@@ -25,7 +25,7 @@ sha256sum -c SHA256SUMS
 ./install.sh --uninstall           # removes what was installed
 ```
 
-The installer creates symlinks `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc4` (and `cvc5`, `alt-ergo` when they are bundled). All of them point to the same AppImage, which picks the tool to run from the name it was called under.
+The installer creates symlinks `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, `cvc4` (and `cvc5`, `alt-ergo` when they are bundled). All of them point to the same AppImage, which picks the tool to run from the name it was called under.
 
 **Without FUSE.** An AppImage mounts itself with FUSE. When FUSE is not available, `install.sh` switches to `--extract` automatically. You can also run the AppImage without installing it:
 
@@ -71,7 +71,9 @@ The upstream `autocomplete_frama-c` script is also shipped, in `usr/share/frama-
 
 ## How provers are configured
 
-On every start, the bundle writes a `why3.conf` that points at the provers inside the current location of the bundle. It goes to `$XDG_RUNTIME_DIR/fcai-<uid>/`, or to `/tmp/fcai-<uid>/` if that is not available. Frama-C/WP is started with `WHY3CONFIG`, `WHY3DATA` and `WHY3LIB` set to these bundled files, so `~/.why3.conf` is not read and not modified. To use your own configuration instead, set `FCAI_WHY3CONFIG=/path/to/why3.conf`.
+On every start, the bundle writes a `why3.conf` that points at the provers inside the current location of the bundle. It goes to `$XDG_RUNTIME_DIR/fcai-<uid>/`, or to `/tmp/fcai-<uid>/` if that is not available. Frama-C/WP is started with `WHY3CONFIG`, `WHY3DATA` and `WHY3LIB` set to these bundled files, so `~/.why3.conf` is not read and not modified. This applies to `frama-c`/WP, `why3` and Ivette alike.
+
+To use your own configuration, set Why3's usual variable, for example `export WHY3CONFIG=~/.why3.conf`; the bundle then uses that file as is. `FCAI_WHY3CONFIG=/path/to/why3.conf` does the same and takes precedence. The provers listed in such a file are run from the paths it gives. To make a configuration for the bundled provers, start from the generated one: `frama-c --fcai-run sh -c 'cat "$WHY3CONFIG"' > my-why3.conf`.
 
 C files are preprocessed with the bundled `gcc -E`, using Frama-C's own libc headers. To use the host's gcc instead, set `FCAI_HOST_CPP=1`.
 

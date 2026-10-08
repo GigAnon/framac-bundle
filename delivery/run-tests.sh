@@ -227,6 +227,35 @@ EOS
         else result FAIL "$m-plugins" "missing:$miss"; fi
     else result FAIL "$m-plugins" "frama-c -plugins failed"; fi
 
+    # 4a. why3 CLI: its commands are .cmxs dynlinked from the bundle's
+    #     WHY3LIB, its provers come from the generated why3.conf
+    if "$fc" --fcai-help 2>/dev/null | grep -qx '  why3'; then
+        local wp="" wv=""
+        if runl "$m-why3-version" "$fc" why3 --version && runl "$m-why3-provers" "$fc" why3 config list-provers; then
+            wv=$(grep -v '^\$\|^\[rc' "$LOGS/$m-why3-version.log" | grep -m1 -i 'why3')
+            for p in $PROVERS; do
+                if runl "$m-why3-prove-$p" "$fc" why3 prove -P "$p" -t 30 "$TESTS/why3_ok.why" \
+                        && grep -q 'Valid' "$LOGS/$m-why3-prove-$p.log"; then wp=$p; break; fi
+            done
+        fi
+        if [ -n "$wp" ]; then result PASS "$m-why3" "why3 CLI: ${wv:-?}; 'why3 prove -P $wp' proved the test goal"
+        else result FAIL "$m-why3" "why3 CLI: --version / config list-provers / prove failed (see $m-why3-* logs)"; fi
+        # a WHY3CONFIG set by the caller is used as is: a copy of the generated
+        # configuration keeping only the first prover section must be what
+        # 'why3 config list-provers' sees, and WP must still run with it
+        "$fc" --fcai-run sh -c 'cat "$WHY3CONFIG"' 2>/dev/null \
+            | awk 'BEGIN{keep=1} /^\[partial_prover\]/{n++; keep=(n==1)} keep' > "$WORK/why3-$m.conf"
+        local only; only=$(sed -n 's/^name = "\(.*\)"/\1/p' "$WORK/why3-$m.conf" | head -n1)
+        local onlyp; onlyp=$(echo "$only" | tr 'A-Z' 'a-z')
+        if [ -n "$only" ] && WHY3CONFIG="$WORK/why3-$m.conf" runl "$m-why3config-list" "$fc" why3 config list-provers \
+                && grep -q "$only" "$LOGS/$m-why3config-list.log" \
+                && [ "$(grep -v '^\$\|^\[rc' "$LOGS/$m-why3config-list.log" | grep -ci 'alt-ergo\|z3\|cvc4\|cvc5')" -eq 1 ] \
+                && WHY3CONFIG="$WORK/why3-$m.conf" runl "$m-why3config-wp" "$fc" frama-c -wp -wp-prover "$onlyp" "$TESTS/wp_ok.c" \
+                && grep -q 'Proved goals' "$LOGS/$m-why3config-wp.log"; then
+            result PASS "$m-why3config" "WHY3CONFIG from the environment honoured (why3 and WP see only $only)"
+        else result FAIL "$m-why3config" "WHY3CONFIG from the environment not honoured (see $m-why3config-* logs)"; fi
+    fi
+
     # 4. prover binaries
     for p in $PROVERS; do
         if runl "$m-$p-version" "$fc" "$p" --version; then
@@ -523,7 +552,7 @@ if "${FC[$INFO_MODE]}" --fcai-completion > "$WORK/completion.bash" 2> "$LOGS/com
     cat > "$WORK/completion-test.sh" <<'EOS'
 . "$1"; T=$2
 c() { COMP_WORDS=("$@"); COMP_CWORD=$(( $# - 1 )); COMPREPLY=()
-      case "$1" in frama-c-script) _fcai_frama_c_script ;; *) _fcai_frama_c ;; esac
+      case "$1" in frama-c-script) _fcai_frama_c_script ;; why3) _fcai_why3 ;; *) _fcai_frama_c ;; esac
       printf '%s\n' "${COMPREPLY[@]}"; }
 fail=0
 chk() { # DESC EXPECTED -- WORDS...
@@ -538,11 +567,13 @@ chk "prover list"        alt-ergo,z3      -- frama-c -wp-prover alt-ergo,z
 chk "C source"           "$T/eva.c"       -- frama-c -eva "$T/ev"
 chk "ivette"             -wp              -- ivette -wp
 chk "script command"     find-fun         -- frama-c-script find-f
+chk "why3 command"       prove            -- why3 pro
+chk "why3 prover"        z3               -- why3 prove -P z
 echo "options: $(echo $_fcai_opts | wc -w)"
 exit $fail
 EOS
     if bash "$WORK/completion-test.sh" "$WORK/completion.bash" "$TESTS" >> "$LOGS/completion.log" 2>&1; then
-        result PASS completion "bash completion works ($(sed -n 's/^options: //p' "$LOGS/completion.log") options; frama-c, ivette, frama-c-script)"
+        result PASS completion "bash completion works ($(sed -n 's/^options: //p' "$LOGS/completion.log") options; frama-c, ivette, frama-c-script, why3)"
     else
         result FAIL completion "bash completion: $(grep -c '^BAD' "$LOGS/completion.log") check(s) failed (see completion log)"
     fi

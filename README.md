@@ -5,7 +5,7 @@ These scripts build a single AppImage containing:
 * **Frama-C 33.0**, one executable with every plug-in statically linked, including MetAcsl (E-ACSL excluded);
 * **`frama-c-script`**, with its Python helpers and a bundled **Python 3.12 + PyYAML**;
 * **Ivette**, the Electron GUI, built from the Frama-C sources;
-* **Why3 1.8.2** with the provers **Z3 4.13.0, CVC4 1.8, cvc5 1.2.1 and Alt-Ergo 2.6.2**;
+* **Why3 1.8.2**, as a library inside Frama-C and as the `why3` command, with the provers **Z3 4.13.0, CVC4 1.8, cvc5 1.2.1 and Alt-Ergo 2.6.2**;
 * **a C preprocessor** (the `gcc` driver and `cc1`);
 * **bash completion** for `frama-c`, `ivette` and `frama-c-script`, generated from the bundled Frama-C's own help.
 
@@ -45,7 +45,7 @@ tar xf frama-c-33.0-offline-x86_64.tar && cd frama-c-33.0-offline-x86_64
 ./install.sh            # ~/.local/opt + symlinks in ~/.local/bin
 ```
 
-The installed commands are `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc4`, `cvc5` and `alt-ergo`. As root, `install.sh` defaults to `/opt` and `/usr/local/bin`. It writes nothing into any home directory. Each user who wants bash completion runs `setup_completion.sh` (installed next to `frama-c`); root can enable it for everyone with `setup_completion.sh --system`. Without installing, `source <(./Frama-C-*.AppImage --fcai-completion)` loads it. `README.md` inside the archive has the details: `--dir`, `--bin`, `--extract` for machines without FUSE, and `--uninstall`.
+The installed commands are `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, `cvc4`, `cvc5` and `alt-ergo`. As root, `install.sh` defaults to `/opt` and `/usr/local/bin`. It writes nothing into any home directory. Each user who wants bash completion runs `setup_completion.sh` (installed next to `frama-c`); root can enable it for everyone with `setup_completion.sh --system`. Without installing, `source <(./Frama-C-*.AppImage --fcai-completion)` loads it. `README.md` inside the archive has the details: `--dir`, `--bin`, `--extract` for machines without FUSE, and `--uninstall`.
 
 ## How path independence is achieved (and checked)
 
@@ -54,8 +54,8 @@ The installed commands are `frama-c`, `frama-c-script`, `ivette`, `z3`, `cvc4`, 
 | Frama-C plug-ins | loaded with dynlink through findlib, `OCAMLPATH` and absolute paths | `lib/gen_static_exe.py` generates a second executable stanza in the Frama-C source tree. It links the same libraries as `frama-c`, plus every plug-in library the normal build produced, with `-linkall`. It is run with `-no-autoload-plugins`. |
 | Frama-C `share/` and `lib/` | dune-site paths are fixed at install time, and `dune install --relocatable` bakes in `<exe>/../` + the *absolute* stage path | `AppRun` always passes the bundle-relative dune-site locations through `DUNE_DIR_LOCATIONS`, which dune-site searches first. Parts of Frama-C (the libc `-I` path, `-print-lib-path`) use the baked entry, so a relative symlink `usr/<stage path> → usr` makes that entry valid too. The build checks that every `-print-share-path` entry of a moved copy exists, and parses a C file with `#include`s. |
 | `frama-c-script` | runs `$(frama-c -print-lib-path)/analysis-scripts/*.py` with the host's `python3`, and reads `$(frama-c -print-share-path)`, which prints two lines in the bundle | `lib/patch_script.py` makes both substitutions keep their first line. The helpers (`usr/lib/frama-c/lib`) are shipped. `AppRun` puts the bundled Python, which includes PyYAML, first on `PATH` and clears the host's `PYTHON*` variables. |
-| Why3 data | `Config.datadir` and `Config.libdir` point into the opam tree | `AppRun` sets `WHY3DATA` and `WHY3LIB`. `usr/lib/why3` holds Why3's helper programs (`why3server`, `why3cpulimit`): Why3 runs every prover through `why3server`. |
-| Prover config | `why3.conf` stores absolute prover paths | At build time, `why3 config detect` is run against the bundled provers and saved as a template. `AppRun` fills it in for the current location of the bundle and points `WHY3CONFIG` at it. |
+| Why3 data and CLI | `Config.datadir` and `Config.libdir` point into the opam tree, and the `why3` CLI dynlinks its subcommands (`.cmxs`) from that libdir | `AppRun` sets `WHY3DATA` and `WHY3LIB`. `usr/lib/why3` holds Why3's helper programs (`why3server`, `why3cpulimit`; Why3 runs every prover through `why3server`) and the CLI's `commands/` and `plugins/`. |
+| Prover config | `why3.conf` stores absolute prover paths | At build time, `why3 config detect` is run against the bundled provers and saved as a template. `AppRun` fills it in for the current location of the bundle and points `WHY3CONFIG` at it, unless the caller already set `WHY3CONFIG` (or `FCAI_WHY3CONFIG`). |
 | C preprocessor | Frama-C runs `gcc -E` from `PATH` | The `gcc` driver (as `gcc-real`) and `cc1` are bundled with the same relative layout, so gcc finds `cc1` relative to itself. `gcc` is a wrapper that always adds `-nostdinc`, so the host's `/usr/include` is never searched. |
 | Ivette → frama-c | Ivette starts `frama-c` from `PATH` | `usr/lib/fcai-wrappers/frama-c` comes first on `PATH` and runs `AppRun frama-c`. `AppRun` removes `ARGV0` after using it, so this inner call doesn't start Ivette again. |
 | Shared libraries | libgmp and libstdc++ (Frama-C, Z3, Alt-Ergo), libmpc, libmpfr and libisl (cc1) | They are copied **unmodified** into `usr/lib`. Executables get a relative `DT_RPATH` (`$ORIGIN/...`), which glibc also uses for their libraries' dependencies. Adding a RUNPATH to old libraries makes patchelf write misaligned segments that glibc 2.31 rejects, so every patched file is checked for alignment, and `ldd` errors fail the build. Only glibc comes from the host. |

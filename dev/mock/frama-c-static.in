@@ -28,7 +28,9 @@ for f in "${files[@]}"; do gcc -C -E -I. -nostdinc -undef -dD -I"$baked/libc" "$
 if [ "$mode" = wp ]; then
   IFS=, read -ra ps <<< "$prover"
   for p in "${ps[@]}"; do
-    path=$(grep -B0 -A2 "name = " "$WHY3CONFIG" | tr -d '\n' ); bin=$(command -v "$p") || { echo "prover $p not found"; exit 1; }
+    # like WP: the prover must be declared in the why3.conf in use
+    grep -qix "name = \"$p\"" "$WHY3CONFIG" || { echo "[wp] Warning: prover '$p' not found in $WHY3CONFIG"; echo "[wp] Proved goals:    0 / 12"; continue; }
+    bin=$(command -v "$p") || { echo "prover $p not found"; exit 1; }
     "$bin" --version >/dev/null 2>&1 || { echo "prover $p failed"; exit 1; }
     [ -x "$WHY3LIB/why3server" ] || { echo "anomaly: why3server missing"; echo "[wp] Proved goals:    1 / 12"; continue; }
     # the real why3server is a dynamically linked ELF: it must load

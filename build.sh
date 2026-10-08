@@ -317,6 +317,17 @@ for f in "$WHY3_LIBDIR"/*; do
     if [ -f "$f" ] && [ -x "$f" ]; then install -m 755 "$f" "$APPDIR/usr/lib/why3/"; echo "why3 helper: $(basename "$f")"; fi
 done
 [ -x "$APPDIR/usr/lib/why3/why3server" ] || die "why3server not found in $WHY3_LIBDIR"
+# the why3 CLI: its sub-commands (config, prove, replay, ...) and parsers are
+# .cmxs files dynlinked from Config.libdir/{commands,plugins}, which AppRun's
+# WHY3LIB redirects to usr/lib/why3 (the executable gets its RPATH from
+# bundle_libs below)
+install -m 755 "$WHY3_BIN" "$APPDIR/usr/bin/why3"
+for d in commands plugins; do
+    if [ -d "$WHY3_LIBDIR/$d" ]; then cp -a "$WHY3_LIBDIR/$d/." "$APPDIR/usr/lib/why3/$d/"; fi
+done
+( cd "$APPDIR/usr/lib/why3" && find . -type f | sort ) > "$LOGDIR/why3-files.txt"
+[ -n "$(ls "$APPDIR/usr/lib/why3/commands" 2>/dev/null)" ] || die "no Why3 commands in $WHY3_LIBDIR/commands: the why3 CLI would be useless"
+echo "why3 CLI: $(ls "$APPDIR/usr/lib/why3/commands" | wc -l) command file(s), $(ls "$APPDIR/usr/lib/why3/plugins" | wc -l) plugin file(s)"
 mkdir -p "$APPDIR/usr/share/fcai/licenses/why3"
 cp "$(oexec opam var why3:doc 2>/dev/null)"/LICENSE* "$APPDIR/usr/share/fcai/licenses/why3/" 2>/dev/null || true
 

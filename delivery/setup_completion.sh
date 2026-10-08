@@ -1,6 +1,6 @@
 #!/bin/sh
-# setup_completion.sh -- enable bash completion of frama-c, ivette and
-# frama-c-script for the user running it (no root needed), or system-wide.
+# setup_completion.sh -- enable bash completion of frama-c, ivette,
+# frama-c-script and why3 for the user running it (no root needed), or system-wide.
 #
 #   setup_completion.sh              for the current user
 #   setup_completion.sh --system     for all users (root): bash-completion's
@@ -47,7 +47,7 @@ else
 fi
 
 if [ $UNINSTALL = 1 ]; then
-    for c in frama-c frama-c-script ivette; do
+    for c in frama-c frama-c-script ivette why3; do
         f="$DEST/$c"
         if [ -L "$f" ] && [ "$(readlink -- "$f")" = "$COMP" ] || [ "$(readlink -- "$f" 2>/dev/null)" = frama-c ]; then
             rm -f "$f"; echo "removed $f"
@@ -67,7 +67,8 @@ ln -sfn "$COMP" "$DEST/frama-c"
 # bash-completion loads a completion by command name
 ln -sfn frama-c "$DEST/frama-c-script"
 ln -sfn frama-c "$DEST/ivette"
-echo "installed: $DEST/frama-c (+ frama-c-script, ivette)"
+ln -sfn frama-c "$DEST/why3"
+echo "installed: $DEST/frama-c (+ frama-c-script, ivette, why3)"
 
 has_bash_completion=0
 for f in /usr/share/bash-completion/bash_completion /etc/bash_completion; do

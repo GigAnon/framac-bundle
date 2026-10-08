@@ -7,7 +7,7 @@
 #
 # Command selection:
 #   * name it was invoked under (symlink name, or $ARGV0 for an AppImage):
-#       frama-c, frama-c-script, ivette, z3, cvc4, cvc5, alt-ergo
+#       frama-c, frama-c-script, ivette, why3, z3, cvc4, cvc5, alt-ergo
 #   * otherwise, if the first argument is one of those names, it is used;
 #   * otherwise, with no argument at all and no terminal, ivette;
 #   * otherwise the command is frama-c and all arguments are passed to it.
@@ -22,7 +22,10 @@
 # Environment knobs:
 #   FCAI_HOST_CPP=1       use the host's gcc for preprocessing instead of the
 #                         bundled one
-#   FCAI_WHY3CONFIG=FILE  use this why3.conf instead of the generated one
+#   WHY3CONFIG=FILE       use this why3.conf (Why3's own variable, honoured
+#                         for frama-c/WP, why3 and Ivette) instead of the one
+#                         generated for the bundled provers
+#   FCAI_WHY3CONFIG=FILE  same, takes precedence over WHY3CONFIG
 #   FCAI_IVETTE_SANDBOX=0|1  force Chromium's sandbox off/on for Ivette
 #                         (default: on only if user namespaces are usable)
 #   FCAI_DEBUG=1          trace this script
@@ -52,7 +55,7 @@ IVETTE_DIR="$HERE/usr/lib/ivette"
 
 is_cmd() {
     case "$1" in
-        frama-c|frama-c-script|z3|cvc4|cvc5|alt-ergo) [ -x "$HERE/usr/bin/$1" ] ;;
+        frama-c|frama-c-script|why3|z3|cvc4|cvc5|alt-ergo) [ -x "$HERE/usr/bin/$1" ] ;;
         ivette) [ -f "$IVETTE_DIR/.fcai-exe" ] ;;
         *) return 1 ;;
     esac
@@ -61,7 +64,7 @@ is_cmd() {
 usage() {
     sed -n '2,/^set -e/p' "$SELF" | sed -e '$d' -e 's/^# \{0,1\}//'
     echo "Bundled commands:"
-    for c in frama-c frama-c-script ivette z3 cvc4 cvc5 alt-ergo; do
+    for c in frama-c frama-c-script ivette why3 z3 cvc4 cvc5 alt-ergo; do
         is_cmd "$c" && echo "  $c"
     done
     return 0
@@ -75,6 +78,10 @@ setup_env() {
     export WHY3LIB="$HERE/usr/lib/why3"
     if [ -n "${FCAI_WHY3CONFIG:-}" ]; then
         export WHY3CONFIG="$FCAI_WHY3CONFIG"
+    elif [ -n "${WHY3CONFIG:-}" ]; then
+        # the caller's own configuration wins (its prover paths are its business)
+        [ -r "$WHY3CONFIG" ] || echo "frama-c bundle: warning: WHY3CONFIG=$WHY3CONFIG is not a readable file" >&2
+        export WHY3CONFIG
     else
         export WHY3CONFIG
         WHY3CONFIG=$(make_why3_conf)
@@ -218,6 +225,10 @@ case "$CMD" in
         setup_env
         # plug-ins are linked in statically: never scan for dynamic ones
         exec "$HERE/usr/bin/frama-c" -no-autoload-plugins "$@" ;;
+    why3)
+        # WHY3LIB/WHY3DATA/WHY3CONFIG and the bundled provers, as for frama-c
+        setup_env
+        exec "$HERE/usr/bin/why3" "$@" ;;
     frama-c-script)
         # bash script; it runs python3 (bundled) / make (host) and the bundled
         # frama-c (usr/bin, or the wrapper first in PATH)

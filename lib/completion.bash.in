@@ -1,5 +1,5 @@
 # fcai-completion: bash completion for the offline Frama-C bundle
-# (frama-c, ivette, frama-c-script).  Generated at build time from the
+# (frama-c, ivette, frama-c-script, why3).  Generated at build time from the
 # bundled frama-c's own help by lib/gen_completion.py: completing never
 # starts frama-c, and this file works outside the AppImage.
 #
@@ -13,6 +13,8 @@ _fcai_fileopts=' @FILEOPTS@ '
 _fcai_machdeps='@MACHDEPS@'
 _fcai_provers='@PROVERS@'
 _fcai_script_cmds='@SCRIPT_CMDS@'
+_fcai_why3_cmds='@WHY3_CMDS@'
+_fcai_why3_provers='@WHY3_PROVERS@'
 
 # C sources (and the usual Frama-C inputs) plus directories
 _fcai_sources() {
@@ -75,5 +77,27 @@ _fcai_frama_c_script() {
     fi
 }
 
+_fcai_why3() {
+    local cur=${COMP_WORDS[COMP_CWORD]} prev="" f
+    [ "$COMP_CWORD" -gt 0 ] && prev=${COMP_WORDS[COMP_CWORD-1]}
+    COMPREPLY=()
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=($(compgen -W "$_fcai_why3_cmds --version --help" -- "$cur"))
+    elif [ "$prev" = -P ] || [ "$prev" = --prover ]; then
+        COMPREPLY=($(compgen -W "$_fcai_why3_provers" -- "$cur"))
+    elif [[ $cur == -* ]]; then
+        COMPREPLY=($(compgen -W "-P --prover -t --timelimit -m --memlimit -L --library -T --theory -G --goal -a --apply-transform -D --driver -o --output --debug --help" -- "$cur"))
+    else
+        local IFS=$'\n'
+        compopt -o filenames 2>/dev/null
+        for f in $(compgen -d -- "$cur"); do COMPREPLY+=("$f"); done
+        for f in $(compgen -f -- "$cur"); do
+            [ -d "$f" ] && continue
+            case "$f" in *.why|*.mlw|*.py|*.c|*.smt2|*.p) COMPREPLY+=("$f") ;; esac
+        done
+    fi
+}
+
 complete -F _fcai_frama_c frama-c ivette
+complete -F _fcai_why3 why3
 complete -F _fcai_frama_c_script frama-c-script

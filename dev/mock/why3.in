@@ -1,11 +1,36 @@
 #!/bin/bash
-case "$*" in
-  "config detect") { echo '[main]'; echo 'magic = 14'; echo 'datadir = "/should/be/removed"';
-     for p in alt-ergo z3 cvc4 cvc5; do b=$(command -v $p) || continue
-       case $p in z3) n=Z3;; cvc4) n=CVC4;; cvc5) n=CVC5;; alt-ergo) n=Alt-Ergo;; esac
-       printf '\n[partial_prover]\nname = "%s"\npath = "%s"\nversion = "x"\n' $n "$b"; done; } > "$WHY3CONFIG";;
-  "config list-provers") grep name "$WHY3CONFIG";;
-  "--print-libdir") echo "@WHY3LIB@";;
-  "--print-datadir") echo "@WHY3DATA@";;
-  "--version") echo "Why3 platform, version 1.8.2";;
+# MOCK why3 CLI.  Like the real one: Config.libdir/datadir are baked build
+# paths, overridden by WHY3LIB/WHY3DATA; sub-commands exist only if
+# $libdir/commands/<cmd>.cmxs can be dynlinked; provers come from WHY3CONFIG
+# and run through $libdir/why3server.
+libdir=${WHY3LIB:-@WHY3LIB@}; datadir=${WHY3DATA:-@WHY3DATA@}
+case "${1:-}" in
+  --version) echo "Why3 platform, version 1.8.2"; exit 0;;
+  --print-libdir) echo "$libdir"; exit 0;;
+  --print-datadir) echo "$datadir"; exit 0;;
+  "") echo "usage: why3 <command> [options]"; exit 1;;
+esac
+cmd=$1; shift
+[ -f "$libdir/commands/$cmd.cmxs" ] || { echo "why3: cannot load command '$cmd': $libdir/commands/$cmd.cmxs: No such file"; exit 1; }
+[ -d "$datadir/drivers" ] || { echo "why3: drivers not found in $datadir"; exit 1; }
+case "$cmd" in
+  config)
+    case "${1:-}" in
+      detect) { echo '[main]'; echo 'magic = 14'; echo 'datadir = "/should/be/removed"';
+         for p in alt-ergo z3 cvc4 cvc5; do b=$(command -v $p) || continue
+           case $p in z3) n=Z3;; cvc4) n=CVC4;; cvc5) n=CVC5;; alt-ergo) n=Alt-Ergo;; esac
+           printf '\n[partial_prover]\nname = "%s"\npath = "%s"\nversion = "x"\n' $n "$b"; done; } > "$WHY3CONFIG";;
+      list-provers) sed -n 's/^name = "\(.*\)"/\1/p' "$WHY3CONFIG";;
+    esac;;
+  prove)
+    prover="" file=""
+    while [ $# -gt 0 ]; do case "$1" in -P) prover=$2; shift;; -t) shift;; *) file=$1;; esac; shift; done
+    path=$(awk -v want="$(echo "$prover" | tr A-Z a-z)" '
+        /^name = /{ n=tolower($0); gsub(/^name = "|"$/, "", n) }
+        /^path = /{ p=$0; gsub(/^path = "|"$/, "", p); if (n == want) { print p; exit } }' "$WHY3CONFIG")
+    [ -n "$path" ] || { echo "why3: no prover '$prover' in $WHY3CONFIG"; exit 1; }
+    "$path" --version >/dev/null 2>&1 || { echo "why3: prover $path does not run"; exit 1; }
+    out=$("$libdir/why3server" 2>&1); [ "$out" = why3server-ok ] || { echo "why3: why3server failed: $out"; exit 1; }
+    [ -f "$file" ] || { echo "why3: no file $file"; exit 1; }
+    echo "File $(basename "$file"):"; echo "Goal g."; echo "Prover result is: Valid (0.01s, 3 steps).";;
 esac

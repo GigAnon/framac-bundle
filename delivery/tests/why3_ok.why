@@ -1,0 +1,5 @@
+(* why3 CLI smoke test: one easy goal, any bundled prover proves it *)
+theory T
+  use int.Int
+  goal g: forall x y: int. x + y = y + x
+end
