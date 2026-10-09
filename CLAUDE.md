@@ -181,10 +181,9 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 1. **Release build-20261008-1818, run by the agent** (Ubuntu 24.04, glibc 2.39): **110 PASS, 0 FAIL**, 1 WARN (`reloc-spaces`, expected). The relocatable `why3` works: `why3`/`why3config` PASS in both modes, and `strace-leaks` (now also tracing `why3 prove`) PASSes.
    - Also PASS: FUSE mount, extraction, relocation, `offline` (`unshare -rn`), all Ivette tests (Xvfb), `completion` (1185 options).
    - Earlier release build-20261008-1759 failed only `why3`/`why3config` (opam why3 using the build tree; see above).
-   - The owner reports that the bundle works on RHEL 9.8 (a target report for the 1818 build is still wanted).
+   - **Owner, 2026-10-09, on RHEL 9.8:** Frama-C, `frama-c-script`, bash completion and Ivette (with a real display) confirmed working.
    - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
-2. **Not yet tested:** Ivette with a real display.
-3. **Possible improvements, not requested:**
+2. **Possible improvements, not requested:**
    - flambda (`OCAML_FLAMBDA=1`);
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);
    - shrinking the AppImage (Ivette is ~520 MB unpacked);
