@@ -210,10 +210,8 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
    - Earlier release build-20261008-1759 failed only `why3`/`why3config` (opam why3 using the build tree; see above).
    - **Owner, 2026-10-09, on RHEL 9.8:** Frama-C, `frama-c-script`, bash completion and Ivette (with a real display) confirmed working.
    - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
-2. **Next real build** (strip and `.map` pruning; flambda reverted). The volume holds the failed flambda switch, so this build rebuilds the plain switch and everything OCaml (like a first run).
-   - Check `logs/strip.txt` and `ivette-asar-prune.txt`.
-   - The owner publishes a release; the agent runs it and compares sizes and results with 1818.
-   - Then: **1.0 release** preparation (owner).
+2. **Release build-20261009-1959, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`), the same as 1818. The delivery tar is 296.3 → 254.9 MB (−41 MB, −14%) from strip and the removed `.map` files. OCaml is plain 4.14.2, `STRIPPED=yes`. The WP counts are identical (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4), and so are the Eva alarm, Ivette under Xvfb, strace and completion.
+   - Next: **1.0 release** preparation (owner).
 3. **Possible improvements, not requested:**
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);
    - shrinking the AppImage (Ivette is ~520 MB unpacked);
