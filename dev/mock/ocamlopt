@@ -1,0 +1,13 @@
+#!/bin/bash
+# mock ocamlopt (flambda): -config, and -inlining-report like the real one:
+# one <prefix>.<round>.inlining.org per flambda round; -O3 (here only through
+# OCAMLPARAM, as build.sh passes it) gives 3 rounds, otherwise 1.
+case " $* " in *" -config "*) printf 'version: 4.14.2\nflambda: true\n'; exit 0 ;; esac
+rounds=1
+case ",${OCAMLPARAM:-}," in *,O3=1,*) rounds=3 ;; esac
+report=0; src=""
+for a in "$@"; do case "$a" in -inlining-report) report=1 ;; *.ml) src=$a ;; esac; done
+[ -n "$src" ] || { echo "mock ocamlopt: no source" >&2; exit 2; }
+p=${src%.ml}
+: > "$p.cmx"; : > "$p.o"
+if [ $report = 1 ]; then for ((r=0; r<rounds; r++)); do echo "* round $r" > "$p.$r.inlining.org"; done; fi

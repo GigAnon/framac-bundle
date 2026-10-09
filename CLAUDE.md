@@ -35,19 +35,19 @@ Each step is stamped in `$BUILD_ROOT/stamps`; `FORCE=step` or `FORCE=all` reruns
 | # | Step | Notes |
 |---|---|---|
 | 0 | system-packages | apt inside the container (not stamped there). Electron runtime libraries + Xvfb when `WITH_IVETTE=1`. |
-| 1 | opam binary (pinned SHA256), `opam-init`, `opam-switch` (OCaml 4.14.2), `opam-deps` | Installs `ALTERGO_PKG` first, then `--deps-only frama-c.33.0`. |
+| 1 | opam binary (pinned SHA256), `opam-init`, `opam-switch` (OCaml 4.14.2 **flambda**), `opam-deps` | The switch is `ocaml-variants.4.14.2+options` + `ocaml-option-flambda` (`OCAML_FLAMBDA=1`, default) and must report `flambda: true`. After it, `OCAMLPARAM=_,O3=1` is exported (`OCAML_O3`), so the opam deps, Frama-C and why3 are all built with `-O3`; a probe checks it (see below). `stamps/ocaml-conf` records the compiler configuration; a change rebuilds the switch, deps, Frama-C (`_build` removed) and why3. Installs `ALTERGO_PKG` first, then `--deps-only frama-c.33.0`. |
 | 2 | `framac-source` | `opam source frama-c.33.0`. |
 | 2b | vendoring (not stamped) | `EXTRA_PLUGINS` (MetAcsl) is copied into `src/plugins/fcai-extra-<pkg>/` with `opam source`. The `.fcai-<pkg>` marker forces a rebuild when the list changes. |
-| 3 | `framac-build` | `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
+| 3 | `framac-build` | First the dune `-O3` probe. Then `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
 | 4 | `framac-static` | `lib/gen_static_exe.py` finds the `frama-c` executable stanza, reads the plug-in libraries from `_build/install/default/lib/frama-c/plugins/*/META`, and writes `src/init/boot/fcai_static/dune`. It then builds and runs `dune install --release --relocatable --prefix $STAGE`. |
 | 4b | `why3-reloc` | Relocatable why3 CLI: `opam source why3.<ver>`, `./configure --enable-relocation --prefix=$BUILD_ROOT/why3-reloc`, `make`, `make install`. Its `bin/why3` and `lib/why3/{commands,plugins}` are what the AppDir ships. |
 | 5 | downloads | Z3 4.13.0 (glibc-2.31 build), CVC4 1.8 (static, CVC4-archived repo), cvc5 1.2.1 (static), appimagetool 1.9.0, type2 runtime 20251108. All pinned by SHA256. |
-| 6 | AppDir | The static `frama-c`, `frama-c-script` (patched by `lib/patch_script.py`: each `$(... -print-share-path/-print-lib-path)` keeps its first line; original and patch report in `logs/`) + its helpers `usr/lib/frama-c/lib` (analysis-scripts, make_machdep), `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), `bundle_libs.py` (pinned static patchelf 0.18.0; executables get a relative DT_RPATH, copied libraries are **not modified**, every patched file is checked for PT_LOAD alignment, and `ldd` errors fail the build), and the `usr$STAGE → usr` symlink. |
+| 6 | AppDir | The static `frama-c`, `frama-c-script` (patched by `lib/patch_script.py`: each `$(... -print-share-path/-print-lib-path)` keeps its first line; original and patch report in `logs/`) + its helpers `usr/lib/frama-c/lib` (analysis-scripts, make_machdep), `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), **strip** (`STRIP=1`: `frama-c`, `why3`, `alt-ergo`, the why3 helpers with `strip`, the `.cmxs` with `--strip-unneeded`; before `bundle_libs`; sizes in `logs/strip.txt`), `bundle_libs.py` (pinned static patchelf 0.18.0; executables get a relative DT_RPATH, copied libraries are **not modified**, every patched file is checked for PT_LOAD alignment, and `ldd` errors fail the build), and the `usr$STAGE → usr` symlink. |
 | 7 | relocation check | Writes `usr/share/fcai/dune-dir-locations`. Moves a copy; **every** `-print-share-path` entry must exist and contain `libc/`. Parses a C file with `#include`s while the original AppDir is moved away. Runs `-plugins`. |
 | 8 | why3.conf template | `why3 config detect` against the bundled provers (`PATH=usr/bin` only). The AppDir path is replaced by `@APPDIR@`, and `datadir`/`libdir` lines are dropped. |
 | 8c | Python | `WITH_PYTHON=1`: python-build-standalone CPython 3.12 into `usr/lib/fcai-python` (for `frama-c-script`), plus pure-Python PyYAML 6.0.3 (git tag, commit-pinned), trimmed and smoke-tested. |
 | 8d | completion | `lib/gen_completion.py` runs the bundled `frama-c -plugins`, `-kernel-h` and each `-<x>-h`, `-machdep help` and `frama-c-script help`, and fills `lib/completion.bash.in` into `usr/share/fcai/completion/frama-c.bash`. Raw outputs go to `logs/completion-src/`. |
-| 8b | Ivette | Node 22.22.2 (checked against nodejs.org SHASUMS) + corepack/yarn 1. Runs `make -C ivette api` then `make -C ivette dist`. The resulting `dist/linux-unpacked` is imported; `IVETTE_PREBUILT` overrides. |
+| 8b | Ivette | Node 22.22.2 (checked against nodejs.org SHASUMS) + corepack/yarn 1. Runs `make -C ivette api` then `make -C ivette dist`. The resulting `dist/linux-unpacked` is imported; `IVETTE_PREBUILT` overrides. `lib/asar_prune.py` then removes `*.map` from `resources/app.asar` (`IVETTE_PRUNE_MAPS=1`) and verifies every remaining file (log `ivette-asar-prune.txt`). |
 | 9 | build-info | Versions, `GLIBC_REQUIRED` (+ `_IVETTE`), `BUILD_ROOTS` (used by the strace test), and a strings scan of embedded build paths (informational only). **Dies** if a `GLIBC_REQUIRED*` > `GLIBC_MAX`, listing the files in `logs/glibc-too-new.txt`. |
 | 10 | self-test | `run-tests.sh` on the AppDir, using a clean `PATH`, from `/tmp`. If only `ivette-*` tests fail, the build still packages, with a warning. |
 | 11–12 | AppImage + delivery tar | The tar contains: AppImage, `install.sh`, `run-tests.sh`, `tests/`, `README.md`, `build-info.txt`, `SHA256SUMS`. |
@@ -140,6 +140,22 @@ Do not "fix" these back. Each one was observed in a real log.
       - The first parser grabbed every `-word` token and would have taken `-1` as an option.
       - The mock serves an excerpt of the real file (`dev/mock/help/autocomplete-all.txt`), and the test checks `-wp-cache upd` and `-std c1`.
     - **Verified on build-20261008-1818:** `-wp-list-provers` gives `Alt-Ergo:2.6.2 CVC4:1.8 CVC5:1.2.1 Z3:4.13.0` (plus our short names), and every `-*-msg-key`/`-*-warn-key` gets its categories, including `:` sub-keys (`annot:missing-spec`, `memdebug:alias`). 40 options carry value lists.
+- **Size reductions (owner, 2026-10-09: "strip extra, keep the locales").** Measured on the real build-20261008-1818 files in the agent workspace:
+  - **Ivette `app.asar`** is 242 MB: `out/` (the electron-vite bundle) is 11 MB, the rest is `node_modules`, including 604 `*.map` files (63.9 MB). Every one of its 38 687 entries carries a SHA256 `integrity` (hash + 4 MiB blocks).
+    - `asar_prune.py` rewrote it to 178 MB in 1.4 s, and all 38 083 remaining files verified.
+    - The real Ivette with that archive, under Xvfb, starts its frama-c server and renders the full UI: views list, AST with the Eva alarm, source, inspector (screenshot checked).
+    - Pruning `node_modules` itself is *not* done: the main process `require`s `lodash`, `yaku` and `@electron-toolkit/*`, and the renderer may load packages such as `@hpcc-js/wasm` at run time, so it would need GUI-level testing.
+    - The 55 locales stay (owner).
+  - **strip:** `strip -s` on `frama-c` (84 → 63 MB), `why3` (22 → 15 MB), `alt-ergo` (23 → 17 MB), plus the why3 helpers and `.cmxs`: about 35 MB unpacked. After stripping the real files: WP 50/50, Eva, `why3 prove` with all four provers (so the `.cmxs` still load), `why3 wc`/`show`, `frama-c-script` and alt-ergo all work. Z3, CVC4 and cvc5 have no debug info.
+  - **Compression:** the AppImage is squashfs/zstd (296 MB for 855 MB unpacked). With xz (rough per-part sizes): Electron binary 60 MB, `app.asar` 44 MB, locales 8 MB, Python 19 MB, `usr/bin` 48 MB.
+- **flambda (owner, 2026-10-09: "add flambda; build time is not an issue").**
+  - The switch is `ocaml-variants.4.14.2+options` + `ocaml-option-flambda`, and `OCAMLPARAM=_,O3=1` is exported after the switch is created. That applies `-O3` everywhere without editing any dune file; command-line flags still win, because they replace `_`.
+  - **Probes:** with `-O3`, flambda runs 3 rounds, and `-inlining-report` writes `<prefix>.<round>.inlining.org` per round.
+    - `o3-probe` compiles one file with `ocamlopt` directly.
+    - `o3-probe-dune` does the same through dune, at the start of `framac-build`.
+    - Both require `*.2.inlining.org` and die otherwise; the file list is in `logs/o3-probe.txt`.
+    - Not yet seen on a real build: if the file naming differs, the build dies early with the list.
+  - **Caveat, from opam-repository:** `frama-c.33.0`'s opam file (and not 32.0 or earlier) lists `ocaml-variants` `4.14.{0..5}+flambda` and `+flambda-fp` as conflicts. Those legacy package names no longer exist in the repository, and our `+options` route is not covered. No reason is documented. So results must be compared with the non-flambda build: WP counts (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4) and Eva's alarm.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants
@@ -155,7 +171,7 @@ Do not "fix" these back. Each one was observed in a real log.
 
 ## Mock harness (`dev/mock/`)
 
-`run-mock.sh [WORKDIR]` stamps steps 0–4 as done, installs a fake `opam`, and fakes:
+`run-mock.sh [WORKDIR]` stamps steps 0–4 as done (with the default `ocaml-conf`), installs a fake `opam`, and fakes:
 - the stage (`frama-c-static.in`: mimics `-print-share-path` with the baked second entry, `DUNE_DIR_LOCATIONS` handling, libc taken from the *baked* entry, the why3server requirement, prover calls through `PATH`);
 - the Why3 CLI (`why3.in`), like the real one:
   - sub-commands come from `Config.libdir/commands/why3<cmd>.cmxs` **without** looking at `WHY3LIB`;
@@ -170,6 +186,13 @@ Do not "fix" these back. Each one was observed in a real log.
 - help output for completion: the mock frama-c answers `-plugins` with the real 33.0 list, `-<x>-h` from `dev/mock/help/*.txt` (written in Frama-C's format), and `-machdep help`;
 - `why3server`: an ELF depending on `libfcaiold.so.1` → `libfcaiold2.so.1`, both linked old-style (2 MiB `p_align`, no separate-code, like focal's libmpc), with an absolute RUNPATH into the build root. The mock frama-c runs it and requires `why3server-ok`, so library loading is exercised in every relocation test and under strace. The old library patching gives misaligned PT_LOADs on these files, which the new check rejects.
 
+Flambda, strip and asar in the mock:
+- `ocamlopt` (`dev/mock/ocamlopt`) answers `-config` with `flambda: true`, and writes one inlining report per round: 3 when `OCAMLPARAM` has `O3=1`, else 1.
+- `stamps/ocaml-conf` is pre-written.
+- `why3cpulimit` is a `-g` ELF that must come out without `.symtab`/`.debug_*` but with its RPATH.
+- Ivette's `app.asar` comes from `make_asar.py` (`.map` files, integrity hashes) and must come out without maps and verified.
+- A final scenario runs `build.sh STOP_AFTER=ocaml-conf` on a copy of the stamps without `ocaml-conf`: the switch/deps/Frama-C/why3 stamps and `_build` must go, `framac-source` must stay, and an unchanged configuration must keep everything.
+
 The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the workspace glibc (2.38 in the agent workspace); it passes `GLIBC_MAX=<host glibc>` to the build. After the target run it also runs the **glibc scenarios**: with `FCAI_HOST_GLIBC=2.17`, `AppRun`, `run-tests.sh` and `install.sh` must refuse clearly, and a build with `GLIBC_MAX=2.17` must die and list the offending files.
 
 The last scenarios check that `install.sh` leaves the installer's `$HOME` empty, and that another user's `setup_completion.sh` installs links that complete, then uninstalls them.
@@ -183,8 +206,12 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
    - Earlier release build-20261008-1759 failed only `why3`/`why3config` (opam why3 using the build tree; see above).
    - **Owner, 2026-10-09, on RHEL 9.8:** Frama-C, `frama-c-script`, bash completion and Ivette (with a real display) confirmed working.
    - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
-2. **Possible improvements, not requested:**
-   - flambda (`OCAML_FLAMBDA=1`);
+2. **Next real build** (2026-10-09 changes: flambda `-O3`, strip, `.map` pruning; first build rebuilds the switch and everything OCaml):
+   - check `logs/ocaml-config.txt`, `o3-probe.txt`, `strip.txt` and `ivette-asar-prune.txt`;
+   - compare WP/Eva results with 1818;
+   - the owner publishes a release, and the agent runs it and times Eva/WP against 1818.
+   - Then: **1.0 release** preparation (owner).
+3. **Possible improvements, not requested:**
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);
    - shrinking the AppImage (Ivette is ~520 MB unpacked);
    - quoting the libc path upstream.

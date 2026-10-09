@@ -39,6 +39,8 @@ mkdir -p "$R/bin" "$R/stamps" "$R/src/frama-c-33.0" "$W/mockbin"
 for s in system-packages opam-init opam-switch opam-deps framac-source framac-build framac-static; do
     touch "$R/stamps/$s"
 done
+# the switch was "built" with the default compiler configuration
+echo "ocaml=4.14.2 flambda=1 o3=1" > "$R/stamps/ocaml-conf"
 echo "LGPL (mock)" > "$R/src/frama-c-33.0/LICENSE"
 cat > "$R/bin/opam" <<EOF
 #!/bin/bash
@@ -101,6 +103,12 @@ sed -e "s|@WHY3LIB@|$W3L|" -e "s|@WHY3DATA@|$W/why3data|" -e "s|@RELOC@|no|" "$M
 rm -f "$R/stamps/why3-reloc"   # always exercise the relocatable why3 build
 chmod +x "$W/mockbin/why3"
 install -m 755 "$MOCKSRC/alt-ergo" "$W/mockbin/alt-ergo"
+# flambda compiler: -config and the -O3 probe (inlining reports per round)
+install -m 755 "$MOCKSRC/ocamlopt" "$W/mockbin/ocamlopt"
+# alt-ergo is a script in the mock: give the strip step an OCaml-like ELF
+# with debug info and symbols to remove (built with -g)
+printf 'int main(void){ return 0; }\n' > "$W/dbg.c"
+gcc -g -O0 -o "$W3L/why3cpulimit" "$W/dbg.c"
 
 # --- fake Ivette (an ELF that starts 'frama-c -server-socket' from PATH) ------
 IV="$W/ivette-src/dist/linux-unpacked"
@@ -111,7 +119,9 @@ if [ "${IVETTE_MOCK:-}" = bad ]; then
 else
     gcc -O2 -o "$IV/ivette" "$MOCKSRC/mock-ivette.c"
 fi
-cp /bin/true "$IV/chrome-sandbox"; echo asar > "$IV/resources/app.asar"; echo MIT > "$IV/LICENSE.electron.txt"
+cp /bin/true "$IV/chrome-sandbox"; echo MIT > "$IV/LICENSE.electron.txt"
+# an asar like Ivette's, with source maps (build.sh removes them)
+python3 "$MOCKSRC/make_asar.py" "$IV/resources/app.asar"
 
 # --- the real build.sh, from step 5 on ---------------------------------------
 rm -rf "$W/dist" "${XDG_RUNTIME_DIR:-/tmp}/fcai-$(id -u)" "/tmp/fcai-$(id -u)"
@@ -123,6 +133,35 @@ HOST_GLIBC=$(getconf GNU_LIBC_VERSION | sed 's/^glibc //')
     GLIBC_MAX="$HOST_GLIBC" bash "$REPO/build.sh") > "$W/build.out" 2>&1 || rc=$?
 grep -E '^(PASS|FAIL|WARN|SKIP|INFO) |ERROR|WARNING' "$W/build.out" | sort -u || true
 [ $rc = 0 ] || { echo "build.sh FAILED (rc=$rc), see $W/build.out"; exit $rc; }
+
+# --- size reductions and flambda (build.sh, 2026-10-09) -----------------------
+mfail() { echo "MOCK FAIL: $*"; exit 1; }
+ASAR="$R/AppDir/usr/lib/ivette/resources/app.asar"
+python3 -I - "$ASAR" <<'PY' || mfail "app.asar after pruning (see above)"
+import json, struct, sys
+f = open(sys.argv[1], "rb"); h = f.read(16)
+hdr = json.loads(f.read(struct.unpack("<I", h[12:16])[0]))
+paths = []
+def w(n, p=""):
+    for k, v in n.get("files", {}).items():
+        w(v, p + k + "/") if "files" in v else paths.append(p + k)
+w(hdr)
+maps = [p for p in paths if p.endswith(".map")]
+need = {"package.json", "out/main/index.js", "out/renderer/assets/index.js", "node_modules/lodash/lodash.js"}
+if maps or not need <= set(paths):
+    sys.exit("maps left: %s; missing: %s" % (maps, need - set(paths)))
+PY
+python3 -I "$REPO/lib/asar_prune.py" "$ASAR" --check-only >/dev/null || mfail "app.asar integrity after pruning"
+echo "ok    Ivette app.asar: source maps removed, remaining files verified"
+CPL="$R/AppDir/usr/lib/why3/why3cpulimit"
+readelf -S "$CPL" | grep -qE '\.symtab|\.debug_' && mfail "why3cpulimit not stripped"
+readelf -d "$CPL" | grep -q 'RPATH' || mfail "why3cpulimit: no RPATH after strip + bundle_libs"
+grep -q 'stripped [0-9]* files' "$R/logs/strip.txt" || mfail "no strip summary"
+echo "ok    stripped: $(tail -n1 "$R/logs/strip.txt")"
+grep -q 'p.2.inlining.org' "$R/logs/o3-probe.txt" || mfail "-O3 probe: no 3rd round"
+grep -q '^OCAML_VERSION=4.14.2+flambda -O3$' "$R/AppDir/usr/share/fcai/build-info" \
+    || mfail "build-info: OCAML_VERSION is not '4.14.2+flambda -O3'"
+echo "ok    flambda -O3: OCAMLPARAM honoured by the (mock) compiler, recorded in build-info"
 
 # --- the delivery archive, as on the offline target ----------------------------
 T="$W/target"; rm -rf "$T"; mkdir -p "$T/home"
@@ -208,3 +247,24 @@ rc=0; (cd "$G" && env -i HOME="$G/home" PATH="$PY:/usr/bin:/bin" bash "$D/run-te
 grep -q '^PASS  [a-z]*-script .*python: bundled' "$G/py38.out" && ! grep -qE '^(FAIL|WARN)  [a-z]*-script' "$G/py38.out" \
     || gfail "frama-c-script did not run on the bundled python ($G/py38.out)"
 echo "ok    $(grep -m1 '^PASS  [a-z]*-script' "$G/py38.out")"
+
+# --- compiler configuration change invalidates the OCaml build steps ----------
+# a volume built before flambda became the default has no stamps/ocaml-conf:
+# the switch, opam packages, Frama-C and why3 must be rebuilt; the sources and
+# downloads are kept.  STOP_AFTER=ocaml-conf stops build.sh right after the check.
+echo "==> compiler configuration change"
+X="$W/conf"; rm -rf "$X"; mkdir -p "$X/bin" "$X/src/frama-c-33.0/_build"
+cp -a "$R/stamps" "$X/stamps"; cp "$R/bin/opam" "$X/bin/opam"; rm -f "$X/stamps/ocaml-conf"
+(cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" STOP_AFTER=ocaml-conf bash "$REPO/build.sh") > "$X/out.txt" 2>&1 \
+    || { echo "MOCK FAIL: build.sh STOP_AFTER=ocaml-conf failed ($X/out.txt)"; exit 1; }
+for st in opam-switch opam-deps framac-build framac-static; do
+    [ ! -e "$X/stamps/$st" ] || { echo "MOCK FAIL: stamp $st kept after a compiler change"; exit 1; }
+done
+[ -e "$X/stamps/framac-source" ] && [ ! -e "$X/src/frama-c-33.0/_build" ] && grep -q 'compiler configuration changed' "$X/out.txt" \
+    || { echo "MOCK FAIL: compiler change handling ($X/out.txt)"; exit 1; }
+cp -a "$R/stamps/." "$X/stamps/"
+(cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" STOP_AFTER=ocaml-conf bash "$REPO/build.sh") > "$X/out2.txt" 2>&1
+[ -e "$X/stamps/opam-switch" ] && [ -e "$X/stamps/framac-static" ] \
+    || { echo "MOCK FAIL: stamps removed although the compiler configuration is unchanged"; exit 1; }
+echo "ok    compiler change (no flambda -> flambda -O3) invalidates switch/deps/Frama-C/why3; unchanged keeps them"
+

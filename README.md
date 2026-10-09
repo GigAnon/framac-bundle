@@ -7,7 +7,7 @@ These scripts build a single AppImage containing:
 * **Ivette**, the Electron GUI, built from the Frama-C sources;
 * **Why3 1.8.2**, as a library inside Frama-C and as the `why3` command, with the provers **Z3 4.13.0, CVC4 1.8, cvc5 1.2.1 and Alt-Ergo 2.6.2**;
 * **a C preprocessor** (the `gcc` driver and `cc1`);
-* **bash completion** for `frama-c`, `ivette` and `frama-c-script`, generated from the bundled Frama-C's own help.
+* **bash completion** for `frama-c`, `ivette`, `frama-c-script` and `why3`, generated from the bundled Frama-C's own help.
 
 The AppImage:
 
@@ -26,7 +26,9 @@ The AppImage:
 
 Output: `dist/frama-c-33.0-offline-x86_64.tar`, plus `dist/logs/` (build log, self-test report, diagnostics). Logs are cleared at the start of each build; `KEEP_LOGS=1` keeps them.
 
-* **First run.** About 30–60 minutes: OCaml, the opam dependencies and Frama-C are all built from source.
+* **First run.** About 30–60 minutes, more with flambda: OCaml, the opam dependencies and Frama-C are all built from source.
+* **Optimised OCaml.** The compiler is OCaml 4.14.2 with **flambda**, and everything after it (opam dependencies, Frama-C, Why3) is compiled with `-O3`, passed as `OCAMLPARAM=_,O3=1`. The build checks that `-O3` really reaches the compiler, both directly and through dune. `OCAML_FLAMBDA=0` uses the plain compiler. Changing the compiler configuration rebuilds everything OCaml automatically.
+* **Size.** The executables built here are stripped (`STRIP=0` keeps the symbols), and Ivette's JavaScript source maps (~64 MB) are removed from its `app.asar`, with every remaining file verified (`IVETTE_PRUNE_MAPS=0` keeps them).
 * **Later runs.** Incremental, because opam and the sources are kept in the `fcai-build-<image>` docker volume. `FORCE=framac-static ./build-in-container.sh` redoes one step; `FORCE=all` redoes all of them.
 * **Downloads.** Everything is pinned:
   * opam, the provers, appimagetool, the AppImage runtime, patchelf and CPython (python-build-standalone): by SHA256;
@@ -77,8 +79,9 @@ build-in-container.sh     runs build.sh in ubuntu:20.04 via docker/podman
 lib/gen_static_exe.py     generates the statically linked frama-c stanza
 lib/patch_script.py       makes frama-c-script use the first -print-share/lib-path line
 lib/gen_completion.py     generates the bash completion from frama-c's help (template: lib/completion.bash.in)
+lib/asar_prune.py         removes source maps from Ivette's app.asar and verifies the rest
 lib/bundle_libs.py        copies shared libraries, sets relative RPATHs on executables, checks alignment
-appdir/AppRun             multi-call entry point (frama-c, frama-c-script, ivette, z3, cvc4, cvc5, alt-ergo)
+appdir/AppRun             multi-call entry point (frama-c, frama-c-script, ivette, why3, z3, cvc4, cvc5, alt-ergo)
 appdir/fcai-wrappers/     'frama-c' as seen by Ivette
 delivery/install.sh       offline installer
 delivery/run-tests.sh     offline acceptance tests

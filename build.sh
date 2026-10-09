@@ -16,7 +16,9 @@
 #
 # Re-running is incremental: completed steps are skipped (see STAMPS).
 # Useful overrides (environment):
-#   FRAMAC_VERSION=33.0   OCAML_VERSION=4.14.2   OCAML_FLAMBDA=0|1
+#   FRAMAC_VERSION=33.0   OCAML_VERSION=4.14.2
+#   OCAML_FLAMBDA=1 (default; 0 = plain compiler)   OCAML_O3=1 (with flambda)
+#   STRIP=1 (strip the executables built here)   IVETTE_PRUNE_MAPS=1
 #   ALTERGO_PKG=alt-ergo.2.6.2 (or alt-ergo-free.2.4.3, or "" to omit)
 #   WITH_CVC5=1   WITH_IVETTE=1   IVETTE_PREBUILT=/path/to/ivette.AppImage
 #   NODE_VERSION=22.22.2   EXTRA_PLUGINS="frama-c-metacsl.0.11"
@@ -32,7 +34,17 @@ SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 # ----------------------------------------------------------------- settings
 : "${FRAMAC_VERSION:=33.0}"
 : "${OCAML_VERSION:=4.14.2}"
-: "${OCAML_FLAMBDA:=0}"
+: "${OCAML_FLAMBDA:=1}"
+# with flambda, every OCaml compilation after the compiler itself (opam
+# dependencies, Frama-C, why3) gets -O3, through OCAMLPARAM
+: "${OCAML_O3:=$OCAML_FLAMBDA}"
+[ "$OCAML_FLAMBDA" = 1 ] || OCAML_O3=0
+# strip debug info and symbol tables from what is compiled here (frama-c,
+# why3, alt-ergo, why3 helpers and .cmxs); downloads and system files are
+# left alone
+: "${STRIP:=1}"
+# drop the JavaScript source maps (*.map, ~64 MB) from Ivette's app.asar
+: "${IVETTE_PRUNE_MAPS:=1}"
 : "${OPAM_VERSION:=2.3.0}"
 : "${OPAM_SHA256:=324e78e3f33efeba279aacf9f9610cfec7b2df7d7e0e1640f75f09de85f96cc9}"
 : "${OPAM_REPO:=https://opam.ocaml.org}"
@@ -182,6 +194,22 @@ if [ ! -x "$BUILD_ROOT/bin/opam" ]; then
     install -m 755 "$DL/opam-$OPAM_VERSION" "$BUILD_ROOT/bin/opam"
 fi
 
+# The compiler configuration is part of every OCaml build product: when it
+# changes (flambda, -O3, OCaml version), the switch, the opam dependencies,
+# Frama-C and why3 are rebuilt.  Volumes from before this file existed were
+# built without flambda.
+OCAML_CONF="ocaml=$OCAML_VERSION flambda=$OCAML_FLAMBDA o3=$OCAML_O3"
+if [ -f "$STAMPS/opam-switch" ]; then
+    old_conf=$(cat "$STAMPS/ocaml-conf" 2>/dev/null || echo "ocaml=$OCAML_VERSION flambda=0 o3=0")
+    if [ "$old_conf" != "$OCAML_CONF" ]; then
+        warn "compiler configuration changed ($old_conf -> $OCAML_CONF): rebuilding the switch, the opam packages, Frama-C and why3"
+        rm -f "$STAMPS"/opam-switch "$STAMPS"/opam-deps "$STAMPS"/framac-build "$STAMPS"/framac-static \
+              "$STAMPS"/why3-reloc "$STAMPS"/ocaml-conf
+        rm -rf "$FC_SRC/_build"
+    fi
+fi
+if [ "${STOP_AFTER:-}" = ocaml-conf ]; then say "STOP_AFTER=ocaml-conf"; exit 0; fi
+
 if step opam-init; then
     rm -rf "$OPAMROOT"
     opam init --bare --disable-sandboxing --no-setup -y default "$OPAM_REPO"
@@ -195,7 +223,25 @@ if step opam-switch; then
     else
         opam switch create "$SWITCH" --packages="ocaml-base-compiler.$OCAML_VERSION"
     fi
+    oexec ocamlopt -config | grep -E '^(version|flambda):' | tee "$LOGDIR/ocaml-config.txt"
+    if [ "$OCAML_FLAMBDA" = 1 ]; then
+        grep -q '^flambda: true' "$LOGDIR/ocaml-config.txt" || die "OCAML_FLAMBDA=1 but the compiler is not flambda"
+    fi
+    echo "$OCAML_CONF" > "$STAMPS/ocaml-conf"
     done_step opam-switch
+fi
+# set after the compiler is built (the compiler's own build must not see it)
+if [ "$OCAML_O3" = 1 ]; then
+    export OCAMLPARAM="_,O3=1"
+    # proof that the compiler honours it: with -O3, flambda runs 3 rounds,
+    # and -inlining-report writes one report per round
+    probe="$BUILD_ROOT/o3-probe"; rm -rf "$probe"; mkdir -p "$probe"
+    echo 'let f x = x + 1 let () = print_int (f 41)' > "$probe/p.ml"
+    (cd "$probe" && oexec ocamlopt -inlining-report -c p.ml) >/dev/null 2>&1 || true
+    ls "$probe" > "$LOGDIR/o3-probe.txt"
+    [ -f "$probe/p.2.inlining.org" ] \
+        || die "OCAMLPARAM=$OCAMLPARAM is not honoured: no 3rd flambda round in the probe (files: $(ls "$probe" | tr '\n' ' '))"
+    echo "OCAMLPARAM=$OCAMLPARAM (flambda -O3: probe ran $(ls "$probe"/p.*.inlining.org | wc -l) rounds)"
 fi
 
 if step opam-deps; then
@@ -233,6 +279,18 @@ done
 
 # ----------------------- 3. regular build (discovers the plug-in libraries)
 if step framac-build; then
+    if [ "$OCAML_O3" = 1 ]; then
+        # same probe through dune, which builds Frama-C: OCAMLPARAM must reach ocamlopt
+        dprobe="$BUILD_ROOT/o3-probe-dune"; rm -rf "$dprobe"; mkdir -p "$dprobe"
+        echo '(lang dune 3.0)' > "$dprobe/dune-project"
+        echo '(executable (name p) (ocamlopt_flags (:standard -inlining-report)))' > "$dprobe/dune"
+        cp "$BUILD_ROOT/o3-probe/p.ml" "$dprobe/p.ml"
+        (cd "$dprobe" && oexec dune build --root . ./p.exe) >> "$LOGDIR/o3-probe.txt" 2>&1 || true
+        find "$dprobe/_build" -name '*.inlining.org' | sed "s|^$dprobe/||" >> "$LOGDIR/o3-probe.txt"
+        [ -n "$(find "$dprobe/_build" -name '*.2.inlining.org')" ] \
+            || die "dune does not pass OCAMLPARAM=$OCAMLPARAM to ocamlopt (logs/o3-probe.txt)"
+        echo "flambda -O3 confirmed through dune"
+    fi
     (cd "$FC_SRC" && oexec dune build -j "$JOBS" --release --promote-install-files=false @install)
     echo "plug-ins registered: $(ls "$FC_SRC/_build/install/default/lib/frama-c/plugins/" | tr '\n' ' ')"
     for name in $EXTRA_NAMES; do
@@ -405,6 +463,29 @@ chmod 755 "$CPPROOT/bin/gcc"
 install -D -m 755 "$CC1" "$CPPROOT/${CC1#/usr/}"
 mkdir -p "$APPDIR/usr/share/fcai/licenses/gcc"
 cp /usr/share/doc/gcc*/copyright "$APPDIR/usr/share/fcai/licenses/gcc/" 2>/dev/null || true
+
+# strip what was compiled here: OCaml backtraces use the OCaml frame tables,
+# not DWARF or .symtab, and the .cmxs that why3 dynlinks resolve through
+# .dynsym, which strip keeps.  Before bundle_libs, so patchelf works on (and
+# bundle_libs checks) the final files.  Copied system libraries, the
+# downloaded provers and the preprocessor are not touched.
+if [ "$STRIP" = 1 ]; then
+    say "strip the executables built here"
+    : > "$LOGDIR/strip.txt"
+    is_elf() { [ "$(head -c4 "$1" | od -An -c | tr -d ' ')" = '177ELF' ]; }
+    for f in "$APPDIR"/usr/bin/frama-c "$APPDIR"/usr/bin/why3 "$APPDIR"/usr/bin/alt-ergo \
+             "$APPDIR"/usr/lib/why3/* "$APPDIR"/usr/lib/why3/commands/* "$APPDIR"/usr/lib/why3/plugins/*; do
+        [ -f "$f" ] && is_elf "$f" || continue
+        before=$(stat -c %s "$f")
+        case "$f" in
+            *.cmxs) strip --strip-unneeded "$f" ;;
+            *)      strip "$f" ;;
+        esac
+        echo "$before -> $(stat -c %s "$f")  ${f#"$APPDIR"/}" >> "$LOGDIR/strip.txt"
+    done
+    awk '{b+=$1; a+=$3} END {printf "stripped %d files: %.1f MB -> %.1f MB\n", NR, b/1e6, a/1e6}' "$LOGDIR/strip.txt" \
+        | tee -a "$LOGDIR/strip.txt"
+fi
 
 # shared libraries + relative RUNPATHs
 say "bundle shared libraries"
@@ -588,6 +669,12 @@ set WITH_IVETTE=0 to skip, or IVETTE_PREBUILT=<Ivette AppImage> to import one"
     # chrome-sandbox cannot be setuid root in an AppImage: AppRun decides
     # between the user-namespace sandbox and --no-sandbox at run time
     chmod 755 "$APPDIR/usr/lib/ivette/chrome-sandbox" 2>/dev/null || true
+    # source maps are only for debugging Ivette's JavaScript; the archive is
+    # rewritten and every remaining file checked (integrity hashes / bytes)
+    if [ "$IVETTE_PRUNE_MAPS" = 1 ] && [ -f "$APPDIR/usr/lib/ivette/resources/app.asar" ]; then
+        python3 "$SRC_DIR/lib/asar_prune.py" "$APPDIR/usr/lib/ivette/resources/app.asar" --glob '*.map' \
+            | tee "$LOGDIR/ivette-asar-prune.txt" || die "pruning Ivette's app.asar failed (logs/ivette-asar-prune.txt)"
+    fi
     mkdir -p "$APPDIR/usr/share/fcai/licenses/ivette"
     cp "$APPDIR"/usr/lib/ivette/LICENSE* "$APPDIR/usr/share/fcai/licenses/ivette/" 2>/dev/null || true
 fi
@@ -645,7 +732,8 @@ ver() { "$APPDIR/usr/bin/$1" --version 2>&1 | head -n1; }
     echo "FRAMAC_VERSION=$FRAMAC_VERSION"
     echo "FRAMAC_VERSION_STRING=$(env -i PATH=/usr/bin:/bin "$APPDIR/usr/bin/frama-c" -no-autoload-plugins -version 2>&1 | head -n1)"
     echo "WHY3_VERSION=$WHY3_VERSION"
-    echo "OCAML_VERSION=$OCAML_VERSION$([ "$OCAML_FLAMBDA" = 1 ] && echo +flambda)"
+    echo "OCAML_VERSION=$OCAML_VERSION$([ "$OCAML_FLAMBDA" = 1 ] && echo +flambda)$([ "$OCAML_O3" = 1 ] && echo ' -O3')"
+    echo "STRIPPED=$([ "$STRIP" = 1 ] && echo yes || echo no)"
     echo "PROVERS=$PROVERS"
     echo "EXTRA_PLUGINS=$EXTRA_PLUGINS"
     if [ -f "$APPDIR/usr/lib/ivette/.fcai-exe" ]; then

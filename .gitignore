@@ -4,3 +4,4 @@
 /_mock/
 *.AppImage
 fcai-test-report-*.txt
+__pycache__/
