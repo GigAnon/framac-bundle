@@ -214,7 +214,16 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
    - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
 2. **Release build-20261009-1959, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`), the same as 1818. The delivery tar is 296.3 → 254.9 MB (−41 MB, −14%) from strip and the removed `.map` files. OCaml is plain 4.14.2, `STRIPPED=yes`. The WP counts are identical (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4), and so are the Eva alarm, Ivette under Xvfb, strace and completion.
 3. **Release v33.0-1.0 (2026-10-09), published by the owner, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`). The tar is 254.9 MB, `--fcai-version` gives `33.0-1.0`, and `install.sh --dir/--bin` installs all 9 commands (`frama-c -version` and `why3 --version` work) without touching `$HOME`. One flaw: `BUNDLE_COMMIT=unknown` (fixed for the next build, see Versioning). Notes: `RELEASE-NOTES.md`.
-4. **Possible improvements, not requested:**
+4. **TODO, next release (owner, 2026-10-09): ZeroMQ support** is missing (reported by another session).
+   - What is known: `frama-c.33.0`'s opam file lists `zmq` among its `depopts`. The Server plug-in's ZeroMQ backend (`-server-zmq <url>`) is only built when the OCaml `zmq` package is installed, and that is not the case today (`--deps-only` skips depopts).
+   - Likely work:
+     - `opam install zmq` in `opam-deps`, before Frama-C; it needs `libzmq3-dev` from apt in the container;
+     - check that the dune build then compiles the zmq part of the server;
+     - `bundle_libs` should pick up `libzmq.so.5` and its dependencies (libsodium, libpgm, libnorm, libgssapi…), to be checked with `ldd`;
+     - the glibc check covers them.
+   - Tests: `-server-zmq` appears in `-server-h`, and a round-trip test (start `frama-c -server-zmq ipc://…`, send one request with a tiny client). The client could be the bundled Python, but that needs pyzmq, so a C client or a frama-c-side self-test is probably simpler.
+   - Mock: a fake libzmq dependency, and the help line.
+5. **Possible improvements, not requested:**
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);
    - shrinking the AppImage (Ivette is ~520 MB unpacked);
    - quoting the libc path upstream.
