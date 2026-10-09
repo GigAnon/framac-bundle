@@ -17,7 +17,7 @@
 # Re-running is incremental: completed steps are skipped (see STAMPS).
 # Useful overrides (environment):
 #   FRAMAC_VERSION=33.0   OCAML_VERSION=4.14.2
-#   OCAML_FLAMBDA=1 (default; 0 = plain compiler)   OCAML_O3=1 (with flambda)
+#   OCAML_FLAMBDA=0 (default; 1 = flambda, see CLAUDE.md: -O3 failed)   OCAML_O3
 #   STRIP=1 (strip the executables built here)   IVETTE_PRUNE_MAPS=1
 #   ALTERGO_PKG=alt-ergo.2.6.2 (or alt-ergo-free.2.4.3, or "" to omit)
 #   WITH_CVC5=1   WITH_IVETTE=1   IVETTE_PREBUILT=/path/to/ivette.AppImage
@@ -34,9 +34,11 @@ SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 # ----------------------------------------------------------------- settings
 : "${FRAMAC_VERSION:=33.0}"
 : "${OCAML_VERSION:=4.14.2}"
-: "${OCAML_FLAMBDA:=1}"
+: "${OCAML_FLAMBDA:=0}"
 # with flambda, every OCaml compilation after the compiler itself (opam
-# dependencies, Frama-C, why3) gets -O3, through OCAMLPARAM
+# dependencies, Frama-C, why3) gets -O3, through OCAMLPARAM.  Not the default:
+# the 2026-10-09 build ran for hours, then ocamlopt died with "Stack overflow"
+# on Eva's parameters.pp.ml (and the machine ran out of memory).
 : "${OCAML_O3:=$OCAML_FLAMBDA}"
 [ "$OCAML_FLAMBDA" = 1 ] || OCAML_O3=0
 # strip debug info and symbol tables from what is compiled here (frama-c,
@@ -243,6 +245,7 @@ if [ "$OCAML_O3" = 1 ]; then
         || die "OCAMLPARAM=$OCAMLPARAM is not honoured: no 3rd flambda round in the probe (files: $(ls "$probe" | tr '\n' ' '))"
     echo "OCAMLPARAM=$OCAMLPARAM (flambda -O3: probe ran $(ls "$probe"/p.*.inlining.org | wc -l) rounds)"
 fi
+if [ "${STOP_AFTER:-}" = o3-probe ]; then say "STOP_AFTER=o3-probe"; exit 0; fi
 
 if step opam-deps; then
     opam update

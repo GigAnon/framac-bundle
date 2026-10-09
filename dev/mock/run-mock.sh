@@ -40,7 +40,7 @@ for s in system-packages opam-init opam-switch opam-deps framac-source framac-bu
     touch "$R/stamps/$s"
 done
 # the switch was "built" with the default compiler configuration
-echo "ocaml=4.14.2 flambda=1 o3=1" > "$R/stamps/ocaml-conf"
+echo "ocaml=4.14.2 flambda=0 o3=0" > "$R/stamps/ocaml-conf"
 echo "LGPL (mock)" > "$R/src/frama-c-33.0/LICENSE"
 cat > "$R/bin/opam" <<EOF
 #!/bin/bash
@@ -158,10 +158,10 @@ readelf -S "$CPL" | grep -qE '\.symtab|\.debug_' && mfail "why3cpulimit not stri
 readelf -d "$CPL" | grep -q 'RPATH' || mfail "why3cpulimit: no RPATH after strip + bundle_libs"
 grep -q 'stripped [0-9]* files' "$R/logs/strip.txt" || mfail "no strip summary"
 echo "ok    stripped: $(tail -n1 "$R/logs/strip.txt")"
-grep -q 'p.2.inlining.org' "$R/logs/o3-probe.txt" || mfail "-O3 probe: no 3rd round"
-grep -q '^OCAML_VERSION=4.14.2+flambda -O3$' "$R/AppDir/usr/share/fcai/build-info" \
-    || mfail "build-info: OCAML_VERSION is not '4.14.2+flambda -O3'"
-echo "ok    flambda -O3: OCAMLPARAM honoured by the (mock) compiler, recorded in build-info"
+grep -q '^OCAML_VERSION=4.14.2$' "$R/AppDir/usr/share/fcai/build-info" \
+    || mfail "build-info: OCAML_VERSION is not plain '4.14.2' (flambda is off by default)"
+[ ! -e "$R/logs/o3-probe.txt" ] || mfail "-O3 probe ran although flambda is off"
+echo "ok    default compiler: plain 4.14.2, no OCAMLPARAM (recorded in build-info)"
 
 # --- the delivery archive, as on the offline target ----------------------------
 T="$W/target"; rm -rf "$T"; mkdir -p "$T/home"
@@ -253,8 +253,11 @@ echo "ok    $(grep -m1 '^PASS  [a-z]*-script' "$G/py38.out")"
 # the switch, opam packages, Frama-C and why3 must be rebuilt; the sources and
 # downloads are kept.  STOP_AFTER=ocaml-conf stops build.sh right after the check.
 echo "==> compiler configuration change"
+# real case (2026-10-09): the owner's volume holds the failed flambda -O3
+# switch, and the default is plain again
 X="$W/conf"; rm -rf "$X"; mkdir -p "$X/bin" "$X/src/frama-c-33.0/_build"
-cp -a "$R/stamps" "$X/stamps"; cp "$R/bin/opam" "$X/bin/opam"; rm -f "$X/stamps/ocaml-conf"
+cp -a "$R/stamps" "$X/stamps"; cp "$R/bin/opam" "$X/bin/opam"
+echo "ocaml=4.14.2 flambda=1 o3=1" > "$X/stamps/ocaml-conf"
 (cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" STOP_AFTER=ocaml-conf bash "$REPO/build.sh") > "$X/out.txt" 2>&1 \
     || { echo "MOCK FAIL: build.sh STOP_AFTER=ocaml-conf failed ($X/out.txt)"; exit 1; }
 for st in opam-switch opam-deps framac-build framac-static; do
@@ -266,5 +269,12 @@ cp -a "$R/stamps/." "$X/stamps/"
 (cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" STOP_AFTER=ocaml-conf bash "$REPO/build.sh") > "$X/out2.txt" 2>&1
 [ -e "$X/stamps/opam-switch" ] && [ -e "$X/stamps/framac-static" ] \
     || { echo "MOCK FAIL: stamps removed although the compiler configuration is unchanged"; exit 1; }
-echo "ok    compiler change (no flambda -> flambda -O3) invalidates switch/deps/Frama-C/why3; unchanged keeps them"
+echo "ok    compiler change (flambda -O3 -> plain) invalidates switch/deps/Frama-C/why3; unchanged keeps them"
+# the opt-in path: OCAML_FLAMBDA=1 exports OCAMLPARAM and the probe must see
+# the 3 flambda rounds (mock ocamlopt behaves like the real one)
+echo "ocaml=4.14.2 flambda=1 o3=1" > "$X/stamps/ocaml-conf"
+(cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" OCAML_FLAMBDA=1 STOP_AFTER=o3-probe bash "$REPO/build.sh") > "$X/out3.txt" 2>&1 \
+    && grep -q 'flambda -O3: probe ran 3 rounds' "$X/out3.txt" \
+    || { echo "MOCK FAIL: OCAML_FLAMBDA=1 -O3 probe ($X/out3.txt)"; exit 1; }
+echo "ok    OCAML_FLAMBDA=1 (opt-in): OCAMLPARAM=_,O3=1 honoured by the compiler probe"
 

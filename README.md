@@ -26,8 +26,8 @@ The AppImage:
 
 Output: `dist/frama-c-33.0-offline-x86_64.tar`, plus `dist/logs/` (build log, self-test report, diagnostics). Logs are cleared at the start of each build; `KEEP_LOGS=1` keeps them.
 
-* **First run.** About 30–60 minutes, more with flambda: OCaml, the opam dependencies and Frama-C are all built from source.
-* **Optimised OCaml.** The compiler is OCaml 4.14.2 with **flambda**, and everything after it (opam dependencies, Frama-C, Why3) is compiled with `-O3`, passed as `OCAMLPARAM=_,O3=1`. The build checks that `-O3` really reaches the compiler, both directly and through dune. `OCAML_FLAMBDA=0` uses the plain compiler. Changing the compiler configuration rebuilds everything OCaml automatically.
+* **First run.** About 30–60 minutes: OCaml, the opam dependencies and Frama-C are all built from source.
+* **flambda.** `OCAML_FLAMBDA=1` builds with an OCaml flambda compiler and `-O3`. It is off by default: with `-O3`, compiling Frama-C 33 ran for hours and then crashed the compiler (stack overflow, out of memory). Changing the compiler configuration rebuilds everything OCaml automatically.
 * **Size.** The executables built here are stripped (`STRIP=0` keeps the symbols), and Ivette's JavaScript source maps (~64 MB) are removed from its `app.asar`, with every remaining file verified (`IVETTE_PRUNE_MAPS=0` keeps them).
 * **Later runs.** Incremental, because opam and the sources are kept in the `fcai-build-<image>` docker volume. `FORCE=framac-static ./build-in-container.sh` redoes one step; `FORCE=all` redoes all of them.
 * **Downloads.** Everything is pinned:

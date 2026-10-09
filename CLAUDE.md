@@ -35,10 +35,10 @@ Each step is stamped in `$BUILD_ROOT/stamps`; `FORCE=step` or `FORCE=all` reruns
 | # | Step | Notes |
 |---|---|---|
 | 0 | system-packages | apt inside the container (not stamped there). Electron runtime libraries + Xvfb when `WITH_IVETTE=1`. |
-| 1 | opam binary (pinned SHA256), `opam-init`, `opam-switch` (OCaml 4.14.2 **flambda**), `opam-deps` | The switch is `ocaml-variants.4.14.2+options` + `ocaml-option-flambda` (`OCAML_FLAMBDA=1`, default) and must report `flambda: true`. After it, `OCAMLPARAM=_,O3=1` is exported (`OCAML_O3`), so the opam deps, Frama-C and why3 are all built with `-O3`; a probe checks it (see below). `stamps/ocaml-conf` records the compiler configuration; a change rebuilds the switch, deps, Frama-C (`_build` removed) and why3. Installs `ALTERGO_PKG` first, then `--deps-only frama-c.33.0`. |
+| 1 | opam binary (pinned SHA256), `opam-init`, `opam-switch` (OCaml 4.14.2, plain), `opam-deps` | `OCAML_FLAMBDA=1` (opt-in, **failed on the real build**, see below) uses `ocaml-variants.4.14.2+options` + `ocaml-option-flambda`, which must report `flambda: true`, then exports `OCAMLPARAM=_,O3=1` (`OCAML_O3`) for the opam deps, Frama-C and why3; a probe checks it. `stamps/ocaml-conf` records the compiler configuration; a change rebuilds the switch, deps, Frama-C (`_build` removed) and why3. Installs `ALTERGO_PKG` first, then `--deps-only frama-c.33.0`. |
 | 2 | `framac-source` | `opam source frama-c.33.0`. |
 | 2b | vendoring (not stamped) | `EXTRA_PLUGINS` (MetAcsl) is copied into `src/plugins/fcai-extra-<pkg>/` with `opam source`. The `.fcai-<pkg>` marker forces a rebuild when the list changes. |
-| 3 | `framac-build` | First the dune `-O3` probe. Then `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
+| 3 | `framac-build` | With flambda, first the dune `-O3` probe. Then `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
 | 4 | `framac-static` | `lib/gen_static_exe.py` finds the `frama-c` executable stanza, reads the plug-in libraries from `_build/install/default/lib/frama-c/plugins/*/META`, and writes `src/init/boot/fcai_static/dune`. It then builds and runs `dune install --release --relocatable --prefix $STAGE`. |
 | 4b | `why3-reloc` | Relocatable why3 CLI: `opam source why3.<ver>`, `./configure --enable-relocation --prefix=$BUILD_ROOT/why3-reloc`, `make`, `make install`. Its `bin/why3` and `lib/why3/{commands,plugins}` are what the AppDir ships. |
 | 5 | downloads | Z3 4.13.0 (glibc-2.31 build), CVC4 1.8 (static, CVC4-archived repo), cvc5 1.2.1 (static), appimagetool 1.9.0, type2 runtime 20251108. All pinned by SHA256. |
@@ -148,7 +148,11 @@ Do not "fix" these back. Each one was observed in a real log.
     - The 55 locales stay (owner).
   - **strip:** `strip -s` on `frama-c` (84 → 63 MB), `why3` (22 → 15 MB), `alt-ergo` (23 → 17 MB), plus the why3 helpers and `.cmxs`: about 35 MB unpacked. After stripping the real files: WP 50/50, Eva, `why3 prove` with all four provers (so the `.cmxs` still load), `why3 wc`/`show`, `frama-c-script` and alt-ergo all work. Z3, CVC4 and cvc5 have no debug info.
   - **Compression:** the AppImage is squashfs/zstd (296 MB for 855 MB unpacked). With xz (rough per-part sizes): Electron binary 60 MB, `app.asar` 44 MB, locales 8 MB, Python 19 MB, `usr/bin` 48 MB.
-- **flambda (owner, 2026-10-09: "add flambda; build time is not an issue").**
+- **flambda (owner, 2026-10-09: "add flambda; build time is not an issue") — FAILED, default back to `OCAML_FLAMBDA=0`.**
+  - **Real build 2026-10-09:** the switch and both `-O3` probes passed ("flambda -O3 confirmed through dune"). Then, after hours, `framac-build` died: `ocamlopt.opt ... -c -impl src/plugins/eva/src/parameters.pp.ml` → `Fatal error: exception Stack overflow`. The owner also saw the machine run out of memory.
+  - flambda `-O3` blows up on big generated modules, which is probably also why `frama-c.33.0` conflicts with the flambda variants (see below).
+  - Untried fallbacks: flambda without `-O3` (`OCAML_O3=0`), `ulimit -s unlimited`, and `JOBS=1` for memory. None is worth it without a measured speed-up.
+  - Switching back is automatic: the owner's volume has `ocaml-conf` = `flambda=1 o3=1`, so the next default build rebuilds the plain switch (mock scenario).
   - The switch is `ocaml-variants.4.14.2+options` + `ocaml-option-flambda`, and `OCAMLPARAM=_,O3=1` is exported after the switch is created. That applies `-O3` everywhere without editing any dune file; command-line flags still win, because they replace `_`.
   - **Probes:** with `-O3`, flambda runs 3 rounds, and `-inlining-report` writes `<prefix>.<round>.inlining.org` per round.
     - `o3-probe` compiles one file with `ocamlopt` directly.
@@ -187,11 +191,11 @@ Do not "fix" these back. Each one was observed in a real log.
 - `why3server`: an ELF depending on `libfcaiold.so.1` → `libfcaiold2.so.1`, both linked old-style (2 MiB `p_align`, no separate-code, like focal's libmpc), with an absolute RUNPATH into the build root. The mock frama-c runs it and requires `why3server-ok`, so library loading is exercised in every relocation test and under strace. The old library patching gives misaligned PT_LOADs on these files, which the new check rejects.
 
 Flambda, strip and asar in the mock:
-- `ocamlopt` (`dev/mock/ocamlopt`) answers `-config` with `flambda: true`, and writes one inlining report per round: 3 when `OCAMLPARAM` has `O3=1`, else 1.
-- `stamps/ocaml-conf` is pre-written.
+- `ocamlopt` (`dev/mock/ocamlopt`) answers `-config` with `flambda: true`, and writes one inlining report per round: 3 when `OCAMLPARAM` has `O3=1`, else 1. It is exercised by the opt-in scenario `OCAML_FLAMBDA=1 STOP_AFTER=o3-probe`.
+- `stamps/ocaml-conf` is pre-written with the default (`flambda=0 o3=0`), and the main build checks that build-info says plain `4.14.2` and that no probe ran.
 - `why3cpulimit` is a `-g` ELF that must come out without `.symtab`/`.debug_*` but with its RPATH.
 - Ivette's `app.asar` comes from `make_asar.py` (`.map` files, integrity hashes) and must come out without maps and verified.
-- A final scenario runs `build.sh STOP_AFTER=ocaml-conf` on a copy of the stamps without `ocaml-conf`: the switch/deps/Frama-C/why3 stamps and `_build` must go, `framac-source` must stay, and an unchanged configuration must keep everything.
+- A final scenario runs `build.sh STOP_AFTER=ocaml-conf` on a copy of the stamps whose `ocaml-conf` says flambda `-O3` (the owner's volume after the failed build): the switch/deps/Frama-C/why3 stamps and `_build` must go, `framac-source` must stay, and an unchanged configuration must keep everything.
 
 The mock bundles the workspace's own gcc, so its `GLIBC_REQUIRED` follows the workspace glibc (2.38 in the agent workspace); it passes `GLIBC_MAX=<host glibc>` to the build. After the target run it also runs the **glibc scenarios**: with `FCAI_HOST_GLIBC=2.17`, `AppRun`, `run-tests.sh` and `install.sh` must refuse clearly, and a build with `GLIBC_MAX=2.17` must die and list the offending files.
 
@@ -206,10 +210,9 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
    - Earlier release build-20261008-1759 failed only `why3`/`why3config` (opam why3 using the build tree; see above).
    - **Owner, 2026-10-09, on RHEL 9.8:** Frama-C, `frama-c-script`, bash completion and Ivette (with a real display) confirmed working.
    - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
-2. **Next real build** (2026-10-09 changes: flambda `-O3`, strip, `.map` pruning; first build rebuilds the switch and everything OCaml):
-   - check `logs/ocaml-config.txt`, `o3-probe.txt`, `strip.txt` and `ivette-asar-prune.txt`;
-   - compare WP/Eva results with 1818;
-   - the owner publishes a release, and the agent runs it and times Eva/WP against 1818.
+2. **Next real build** (strip and `.map` pruning; flambda reverted). The volume holds the failed flambda switch, so this build rebuilds the plain switch and everything OCaml (like a first run).
+   - Check `logs/strip.txt` and `ivette-asar-prune.txt`.
+   - The owner publishes a release; the agent runs it and compares sizes and results with 1818.
    - Then: **1.0 release** preparation (owner).
 3. **Possible improvements, not requested:**
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);
