@@ -38,6 +38,7 @@ The installer creates symlinks `frama-c`, `frama-c-script`, `ivette`, `why3`, `z
 ./Frama-C-*.AppImage -wp -wp-prover z3,cvc4 file.c   # frama-c is the default command
 ./Frama-C-*.AppImage z3 --version
 ./Frama-C-*.AppImage frama-c-script help
+./Frama-C-*.AppImage --fcai-version # bundle version: <Frama-C version>-<bundle revision>, e.g. 33.0-1.0
 ./Frama-C-*.AppImage --fcai-info    # versions, required glibc
 ./Frama-C-*.AppImage --fcai-help
 ```

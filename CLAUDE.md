@@ -20,11 +20,11 @@ Read this before changing anything. `README.md` is the user-facing overview, and
 1. The agent edits scripts **and runs `dev/mock/run-mock.sh`**. All of it must pass before anything is handed over.
 2. The owner runs `./build-in-container.sh` on the build machine. On failure, everything needed is in `dist/logs/` (build log, test report, `ivette-*.log`, `plugins.txt`, `why3-provers.txt`, `relo-parse.txt`, `embedded-build-paths.txt`). The owner pastes the console tail or attaches files.
 3. The agent diagnoses from the logs, fixes the cause, extends the mock so it **reproduces** the observed failure, re-runs the mock, and hands over.
-4. Once the build is green, the owner copies `dist/frama-c-33.0-offline-x86_64.tar` to the offline target and runs `./run-tests.sh` there. The `fcai-test-report-*.txt` comes back.
+4. Once the build is green, the owner copies `dist/frama-c-33.0-1.0-offline-x86_64.tar` to the offline target and runs `./run-tests.sh` there. The `fcai-test-report-*.txt` comes back.
 
 **Messages to the owner.** Keep them short: what failed, the cause, what changed, what to run, what to send back. The owner is technical. Be precise; skip the tutorials.
 
-**Real builds can be tested by the agent.** The owner publishes the delivery tar as a GitHub release of `GigAnon/framac-bundle`, a public repo, e.g. `gh release create build-<date> dist/frama-c-33.0-offline-x86_64.tar`. The agent downloads it (release assets are reachable), checks `SHA256SUMS`, and runs the shipped `run-tests.sh` in its workspace. That workspace is Ubuntu 24.04 with glibc 2.39, where FUSE, unprivileged `unshare` and Xvfb all worked on 2026-10-08, so it covers what the build container SKIPs.
+**Real builds can be tested by the agent.** The owner publishes the delivery tar as a GitHub release of `GigAnon/framac-bundle`, a public repo, e.g. `gh release create build-<date> dist/frama-c-33.0-1.0-offline-x86_64.tar`. The agent downloads it (release assets are reachable), checks `SHA256SUMS`, and runs the shipped `run-tests.sh` in its workspace. That workspace is Ubuntu 24.04 with glibc 2.39, where FUSE, unprivileged `unshare` and Xvfb all worked on 2026-10-08, so it covers what the build container SKIPs.
 
 **The agent's workspace network may be restricted.** In the first session opam.ocaml.org, frama-c.com, git.frama-c.com and nodejs.org were blocked, while GitHub release assets were reachable. A real build was therefore impossible there, which is why the mock exists. Check what is reachable before relying on it. Never try to get around a proxy refusal.
 
@@ -160,6 +160,7 @@ Do not "fix" these back. Each one was observed in a real log.
     - Both require `*.2.inlining.org` and die otherwise; the file list is in `logs/o3-probe.txt`.
     - Not yet seen on a real build: if the file naming differs, the build dies early with the list.
   - **Caveat, from opam-repository:** `frama-c.33.0`'s opam file (and not 32.0 or earlier) lists `ocaml-variants` `4.14.{0..5}+flambda` and `+flambda-fp` as conflicts. Those legacy package names no longer exist in the repository, and our `+options` route is not covered. No reason is documented. So results must be compared with the non-flambda build: WP counts (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4) and Eva's alarm.
+- **Versioning (owner, 2026-10-09).** The bundle version is `<Frama-C version>-<bundle revision>`: `BUNDLE_REV=1.0` gives `33.0-1.0`. It appears in the tar and directory name (`frama-c-33.0-1.0-offline-x86_64`), in the AppImage name (`Frama-C-33.0-1.0-x86_64.AppImage`), in the default install dir (`frama-c-33.0-1.0`), and in build-info (`BUNDLE_VERSION`, plus `BUNDLE_COMMIT` = the repo commit, `-dirty` if modified). `--fcai-version` prints it. Bump `BUNDLE_REV` for bundle-only changes; a new Frama-C version restarts it at 1.0. Git tag: `v33.0-1.0`.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants

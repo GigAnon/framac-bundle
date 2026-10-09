@@ -13,6 +13,7 @@
 #   * otherwise the command is frama-c and all arguments are passed to it.
 # Bundle-specific options (first argument):
 #   --fcai-help           this help
+#   --fcai-version        bundle version (<Frama-C version>-<bundle revision>)
 #   --fcai-info           build information (versions, glibc floor, ...)
 #   --fcai-env            print the environment frama-c is run with
 #   --fcai-completion     print the bash completion script (frama-c, ivette,
@@ -192,6 +193,7 @@ if ! is_cmd "$CMD"; then
     case "${1:-}" in
         --fcai-help) usage; exit 0 ;;
         --fcai-info) cat "$HERE/usr/share/fcai/build-info"; exit 0 ;;
+        --fcai-version) sed -n 's/^BUNDLE_VERSION=//p' "$HERE/usr/share/fcai/build-info"; exit 0 ;;
         --fcai-completion) cat "$HERE/usr/share/fcai/completion/frama-c.bash"; exit 0 ;;
         --fcai-env)
             setup_env

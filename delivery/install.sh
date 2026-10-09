@@ -23,8 +23,8 @@ set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 APPIMAGE=$(ls -1 "$HERE"/*.AppImage 2>/dev/null | grep -iv ivette | head -n1 || true)
 [ -n "$APPIMAGE" ] || { echo "no Frama-C *.AppImage next to install.sh" >&2; exit 1; }
-BASE=$(basename "$APPIMAGE" .AppImage)          # e.g. Frama-C-33.0-x86_64
-VERSION=$(echo "$BASE" | sed -n 's/^Frama-C-\([^-]*\)-.*/\1/p')
+BASE=$(basename "$APPIMAGE" .AppImage)          # e.g. Frama-C-33.0-1.0-x86_64
+VERSION=$(echo "$BASE" | sed -n 's/^Frama-C-\(.*\)-x86_64$/\1/p')
 if [ "$(id -u)" = 0 ]; then
     # root installs for everybody, never into /root
     DIR="/opt/frama-c-${VERSION:-bundle}"

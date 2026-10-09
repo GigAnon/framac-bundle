@@ -16,7 +16,8 @@
 #
 # Re-running is incremental: completed steps are skipped (see STAMPS).
 # Useful overrides (environment):
-#   FRAMAC_VERSION=33.0   OCAML_VERSION=4.14.2
+#   FRAMAC_VERSION=33.0   BUNDLE_REV=1.0 (bundle version = FRAMAC_VERSION-BUNDLE_REV)
+#   OCAML_VERSION=4.14.2
 #   OCAML_FLAMBDA=0 (default; 1 = flambda, see CLAUDE.md: -O3 failed)   OCAML_O3
 #   STRIP=1 (strip the executables built here)   IVETTE_PRUNE_MAPS=1
 #   ALTERGO_PKG=alt-ergo.2.6.2 (or alt-ergo-free.2.4.3, or "" to omit)
@@ -33,6 +34,10 @@ SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 
 # ----------------------------------------------------------------- settings
 : "${FRAMAC_VERSION:=33.0}"
+# revision of this bundle (scripts, components); the published version is
+# <Frama-C version>-<bundle revision>, e.g. 33.0-1.0
+: "${BUNDLE_REV:=1.0}"
+BUNDLE_VERSION="$FRAMAC_VERSION-$BUNDLE_REV"
 : "${OCAML_VERSION:=4.14.2}"
 : "${OCAML_FLAMBDA:=0}"
 # with flambda, every OCaml compilation after the compiler itself (opam
@@ -732,6 +737,8 @@ glibc_floor=$(find "$APPDIR" -path "$APPDIR/usr/lib/ivette" -prune -o -type f -e
     | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -n1)
 ver() { "$APPDIR/usr/bin/$1" --version 2>&1 | head -n1; }
 {
+    echo "BUNDLE_VERSION=$BUNDLE_VERSION"
+    echo "BUNDLE_COMMIT=$(git -C "$SRC_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)$(git -C "$SRC_DIR" status --porcelain 2>/dev/null | grep -q . && echo -dirty)"
     echo "FRAMAC_VERSION=$FRAMAC_VERSION"
     echo "FRAMAC_VERSION_STRING=$(env -i PATH=/usr/bin:/bin "$APPDIR/usr/bin/frama-c" -no-autoload-plugins -version 2>&1 | head -n1)"
     echo "WHY3_VERSION=$WHY3_VERSION"
@@ -795,10 +802,10 @@ fi
 
 # ------------------------------------------------------------ 11. AppImage
 say "AppImage"
-DIST_NAME="frama-c-$FRAMAC_VERSION-offline-x86_64"
+DIST_NAME="frama-c-$BUNDLE_VERSION-offline-x86_64"
 DIST="$OUT_DIR/$DIST_NAME"
 rm -rf "$DIST"; mkdir -p "$DIST/tests"
-AI="$DIST/Frama-C-$FRAMAC_VERSION-x86_64.AppImage"
+AI="$DIST/Frama-C-$BUNDLE_VERSION-x86_64.AppImage"
 chmod 755 "$DL/appimagetool.AppImage"
 if ! command -v desktop-file-validate >/dev/null; then
     warn "desktop-file-validate missing (package desktop-file-utils); using a no-op stand-in"

@@ -162,6 +162,11 @@ grep -q '^OCAML_VERSION=4.14.2$' "$R/AppDir/usr/share/fcai/build-info" \
     || mfail "build-info: OCAML_VERSION is not plain '4.14.2' (flambda is off by default)"
 [ ! -e "$R/logs/o3-probe.txt" ] || mfail "-O3 probe ran although flambda is off"
 echo "ok    default compiler: plain 4.14.2, no OCAMLPARAM (recorded in build-info)"
+[ "$("$R/AppDir/AppRun" --fcai-version)" = 33.0-1.0 ] || mfail "--fcai-version is not 33.0-1.0"
+ls "$W/dist"/frama-c-33.0-1.0-offline-x86_64.tar >/dev/null 2>&1 \
+    && tar -tf "$W/dist"/frama-c-33.0-1.0-offline-x86_64.tar | grep -q 'Frama-C-33.0-1.0-x86_64.AppImage$' \
+    || mfail "delivery names do not carry the bundle version 33.0-1.0"
+echo "ok    bundle version 33.0-1.0: --fcai-version, tar and AppImage names"
 
 # --- the delivery archive, as on the offline target ----------------------------
 T="$W/target"; rm -rf "$T"; mkdir -p "$T/home"

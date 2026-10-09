@@ -24,7 +24,7 @@ The AppImage:
 ./build.sh
 ```
 
-Output: `dist/frama-c-33.0-offline-x86_64.tar`, plus `dist/logs/` (build log, self-test report, diagnostics). Logs are cleared at the start of each build; `KEEP_LOGS=1` keeps them.
+Output: `dist/frama-c-33.0-1.0-offline-x86_64.tar`, plus `dist/logs/` (build log, self-test report, diagnostics). Logs are cleared at the start of each build; `KEEP_LOGS=1` keeps them.
 
 * **First run.** About 30–60 minutes: OCaml, the opam dependencies and Frama-C are all built from source.
 * **flambda.** `OCAML_FLAMBDA=1` builds with an OCaml flambda compiler and `-O3`. It is off by default: with `-O3`, compiling Frama-C 33 ran for hours and then crashed the compiler (stack overflow, out of memory). Changing the compiler configuration rebuilds everything OCaml automatically.
@@ -42,7 +42,7 @@ Output: `dist/frama-c-33.0-offline-x86_64.tar`, plus `dist/logs/` (build log, se
 ## Install and test (offline machine)
 
 ```sh
-tar xf frama-c-33.0-offline-x86_64.tar && cd frama-c-33.0-offline-x86_64
+tar xf frama-c-33.0-1.0-offline-x86_64.tar && cd frama-c-33.0-1.0-offline-x86_64
 ./run-tests.sh          # -> fcai-test-report-<host>-<date>.txt
 ./install.sh            # ~/.local/opt + symlinks in ~/.local/bin
 ```
