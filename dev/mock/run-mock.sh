@@ -166,7 +166,8 @@ echo "ok    default compiler: plain 4.14.2, no OCAMLPARAM (recorded in build-inf
 ls "$W/dist"/frama-c-33.0-1.0-offline-x86_64.tar >/dev/null 2>&1 \
     && tar -tf "$W/dist"/frama-c-33.0-1.0-offline-x86_64.tar | grep -q 'Frama-C-33.0-1.0-x86_64.AppImage$' \
     || mfail "delivery names do not carry the bundle version 33.0-1.0"
-echo "ok    bundle version 33.0-1.0: --fcai-version, tar and AppImage names"
+grep -qE '^BUNDLE_COMMIT=[0-9a-f]{7,}(-dirty)?$' "$R/AppDir/usr/share/fcai/build-info" || mfail "build-info: BUNDLE_COMMIT is not a commit"
+echo "ok    bundle version 33.0-1.0: --fcai-version, tar and AppImage names, BUNDLE_COMMIT"
 
 # --- the delivery archive, as on the offline target ----------------------------
 T="$W/target"; rm -rf "$T"; mkdir -p "$T/home"

@@ -160,7 +160,8 @@ Do not "fix" these back. Each one was observed in a real log.
     - Both require `*.2.inlining.org` and die otherwise; the file list is in `logs/o3-probe.txt`.
     - Not yet seen on a real build: if the file naming differs, the build dies early with the list.
   - **Caveat, from opam-repository:** `frama-c.33.0`'s opam file (and not 32.0 or earlier) lists `ocaml-variants` `4.14.{0..5}+flambda` and `+flambda-fp` as conflicts. Those legacy package names no longer exist in the repository, and our `+options` route is not covered. No reason is documented. So results must be compared with the non-flambda build: WP counts (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4) and Eva's alarm.
-- **Versioning (owner, 2026-10-09).** The bundle version is `<Frama-C version>-<bundle revision>`: `BUNDLE_REV=1.0` gives `33.0-1.0`. It appears in the tar and directory name (`frama-c-33.0-1.0-offline-x86_64`), in the AppImage name (`Frama-C-33.0-1.0-x86_64.AppImage`), in the default install dir (`frama-c-33.0-1.0`), and in build-info (`BUNDLE_VERSION`, plus `BUNDLE_COMMIT` = the repo commit, `-dirty` if modified). `--fcai-version` prints it. Bump `BUNDLE_REV` for bundle-only changes; a new Frama-C version restarts it at 1.0. Git tag: `v33.0-1.0`.
+- **Versioning (owner, 2026-10-09).** The bundle version is `<Frama-C version>-<bundle revision>`: `BUNDLE_REV=1.0` gives `33.0-1.0`. It appears in the tar and directory name (`frama-c-33.0-1.0-offline-x86_64`), in the AppImage name (`Frama-C-33.0-1.0-x86_64.AppImage`), in the default install dir (`frama-c-33.0-1.0`), and in build-info (`BUNDLE_VERSION`, plus `BUNDLE_COMMIT` = the repo commit, `-dirty` if modified). `--fcai-version` prints it.
+  - The v33.0-1.0 release says `BUNDLE_COMMIT=unknown`: in the container, git refuses `/fcai-src` (owned by the host user, read-only: "dubious ownership"). `build-in-container.sh` now computes it on the host and passes `FCAI_COMMIT`. Bump `BUNDLE_REV` for bundle-only changes; a new Frama-C version restarts it at 1.0. Git tag: `v33.0-1.0`.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants
@@ -212,8 +213,8 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
    - **Owner, 2026-10-09, on RHEL 9.8:** Frama-C, `frama-c-script`, bash completion and Ivette (with a real display) confirmed working.
    - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
 2. **Release build-20261009-1959, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`), the same as 1818. The delivery tar is 296.3 → 254.9 MB (−41 MB, −14%) from strip and the removed `.map` files. OCaml is plain 4.14.2, `STRIPPED=yes`. The WP counts are identical (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4), and so are the Eva alarm, Ivette under Xvfb, strace and completion.
-   - Next: **1.0 release** preparation (owner).
-3. **Possible improvements, not requested:**
+3. **Release v33.0-1.0 (2026-10-09), published by the owner, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`). The tar is 254.9 MB, `--fcai-version` gives `33.0-1.0`, and `install.sh --dir/--bin` installs all 9 commands (`frama-c -version` and `why3 --version` work) without touching `$HOME`. One flaw: `BUNDLE_COMMIT=unknown` (fixed for the next build, see Versioning). Notes: `RELEASE-NOTES.md`.
+4. **Possible improvements, not requested:**
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);
    - shrinking the AppImage (Ivette is ~520 MB unpacked);
    - quoting the libc path upstream.

@@ -738,7 +738,9 @@ glibc_floor=$(find "$APPDIR" -path "$APPDIR/usr/lib/ivette" -prune -o -type f -e
 ver() { "$APPDIR/usr/bin/$1" --version 2>&1 | head -n1; }
 {
     echo "BUNDLE_VERSION=$BUNDLE_VERSION"
-    echo "BUNDLE_COMMIT=$(git -C "$SRC_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)$(git -C "$SRC_DIR" status --porcelain 2>/dev/null | grep -q . && echo -dirty)"
+    # build-in-container.sh passes FCAI_COMMIT from the host (in the container
+    # git refuses the read-only, other-owner /fcai-src: "dubious ownership")
+    echo "BUNDLE_COMMIT=${FCAI_COMMIT:-$(git -C "$SRC_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)$(git -C "$SRC_DIR" status --porcelain 2>/dev/null | grep -q . && echo -dirty)}"
     echo "FRAMAC_VERSION=$FRAMAC_VERSION"
     echo "FRAMAC_VERSION_STRING=$(env -i PATH=/usr/bin:/bin "$APPDIR/usr/bin/frama-c" -no-autoload-plugins -version 2>&1 | head -n1)"
     echo "WHY3_VERSION=$WHY3_VERSION"

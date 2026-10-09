@@ -39,6 +39,11 @@ if [ -n "${IVETTE_PREBUILT:-}" ]; then
     p=$(readlink -f "$IVETTE_PREBUILT")
     PREBUILT=(-v "$(dirname "$p"):/fcai-prebuilt:ro" -e "IVETTE_PREBUILT=/fcai-prebuilt/$(basename "$p")")
 fi
+# the repo commit, for build-info (git cannot read /fcai-src inside)
+if c=$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null); then
+    git -C "$HERE" status --porcelain 2>/dev/null | grep -q . && c="$c-dirty"
+    PASS+=(-e "FCAI_COMMIT=$c")
+fi
 TTY=(); [ -t 0 ] && TTY=(-t)
 # docker runs as root: hand the output back to the caller.  Rootless podman
 # already maps container root to the caller, so no chown there.
