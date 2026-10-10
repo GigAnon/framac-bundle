@@ -217,6 +217,20 @@ echo "PASS: $(grep -c '^PASS' "$T/out.txt")"
 grep -E '^(FAIL|WARN|SKIP) ' "$T/out.txt" | sort -u || true
 [ $rc = 0 ] || exit $rc
 
+# --- the ZeroMQ test client loads the bundled libzmq by path ------------------
+# real failure (v33.0-1.1-rc1, agent workspace): ctypes.CDLL(<bundle>/usr/lib/
+# libzmq.so.5) -> "libpgm-5.2.so.0: cannot open shared object file": bundled
+# libraries have no search path of their own, and the host had no libpgm.  The
+# mock's libzmq finds all its dependencies on this host, so reproduce with
+# libfcaiold.so.1, whose dependency libfcaiold2.so.1 exists only in the bundle.
+mfail() { echo "MOCK FAIL: $*"; exit 1; }
+LO="$R/AppDir/usr/lib/libfcaiold.so.1"
+python3 -I -c 'import ctypes,sys; ctypes.CDLL(sys.argv[1])' "$LO" 2>/dev/null \
+    && mfail "plain ctypes.CDLL loaded $LO: the scenario does not reproduce the real failure"
+python3 -I "$REPO/delivery/tests/zmq_client.py" --load-only "$LO" >/dev/null \
+    || mfail "zmq_client.py cannot load a bundled library whose dependency is only in the bundle"
+echo "ok    zmq_client.py loads bundled libraries whose dependencies exist only in the bundle"
+
 # --- glibc too old on the target (real: bundle built on ubuntu:22.04 = glibc
 #     2.35, run on RHEL 9 = glibc 2.34 -> "GLIBC_2.35 not found") -------------
 # simulated with FCAI_HOST_GLIBC=2.17: AppRun, run-tests.sh and install.sh must

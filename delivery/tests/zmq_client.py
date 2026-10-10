@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """zmq_client.py LIBZMQ URL -- one request to a Frama-C ZeroMQ server.
+   zmq_client.py --load-only LIB -- only load LIB (and its dependencies)
 
 Uses only the standard library: libzmq (the one bundled with Frama-C) is
 called through ctypes.  Protocol (Frama-C server_zmq.md): a REQ socket sends
@@ -7,17 +8,51 @@ multi-part messages; GET(id, request, json) is answered with DATA(id, json),
 possibly after POLLs while the server is busy ("NONE").  Sends
 kernel.services.getConfig, prints the reply, then SHUTDOWN.  Exit 0 iff a
 DATA reply with a "version" field came back.
+
+The bundled shared libraries carry no search path of their own (only the
+bundle's executables do), so a library's dependencies, which sit next to
+it, are not found when it is dlopen()ed by path from another program.
+load() preloads each missing dependency from the library's directory, as
+the loader names it, and retries; no LD_LIBRARY_PATH is needed.
 """
 import ctypes
 import json
+import os
+import re
 import sys
 import time
 
 ZMQ_REQ, ZMQ_SNDMORE, ZMQ_RCVMORE, ZMQ_RCVTIMEO, ZMQ_LINGER = 3, 2, 13, 27, 17
 
 
+def load(path):
+    here = os.path.dirname(os.path.abspath(path))
+    preloaded = []
+    for _ in range(64):
+        try:
+            return ctypes.CDLL(path)
+        except OSError as e:
+            m = re.match(r"([^:]+): cannot open shared object file", str(e))
+            dep = m and os.path.join(here, os.path.basename(m.group(1)))
+            if not dep or not os.path.exists(dep) or dep in preloaded:
+                raise
+            load(dep) if False else None
+            try:
+                ctypes.CDLL(dep, mode=ctypes.RTLD_GLOBAL)
+            except OSError:
+                # the dependency has missing dependencies of its own
+                load(dep)
+                ctypes.CDLL(dep, mode=ctypes.RTLD_GLOBAL)
+            preloaded.append(dep)
+    raise OSError("too many dependencies to preload for " + path)
+
+
 def main():
-    lib = ctypes.CDLL(sys.argv[1])
+    if sys.argv[1] == "--load-only":
+        load(sys.argv[2])
+        print("loaded:", sys.argv[2])
+        return
+    lib = load(sys.argv[1])
     url = sys.argv[2].encode()
     vp, sz = ctypes.c_void_p, ctypes.c_size_t
     lib.zmq_ctx_new.restype = vp

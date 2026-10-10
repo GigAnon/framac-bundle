@@ -176,7 +176,15 @@ Do not "fix" these back. Each one was observed in a real log.
     - `<mode>-apron`: Eva on `eva.c` with each `apron-*` domain listed by `-eva-domains help` must find the alarm.
     - `zmq-server`: `-server-zmq` in `-server-h`; `frama-c -server-zmq ipc://…` must create the socket; then `tests/zmq_client.py` (bundled Python, the bundled `libzmq.so.5` through ctypes, no pyzmq) sends `GET kernel.services.getConfig` and needs `DATA` with a `version`, then sends `SHUTDOWN`.
     - Both run only if build-info's `OPTIONAL_DEPS` lists them.
-  - **Not yet seen on a real build:** opam resolving `zmq` (6.0.0, dune ≥ 3.18) and `apron` on focal, whether apron's libraries end up shared (`--search`) or static, and libzmq's bundled dependencies (the mock, with the workspace's libzmq 4.3.5, bundled libnorm, libbsd and krb5).
+  - **Real build v33.0-1.1-rc1 (2026-10-10, commit 82c648a):** opam picked `zmq` 6.0.0 and `apron` v0.9.15 on focal; `GLIBC_REQUIRED` stayed 2.29.
+    - Apron's libraries are **shared** (`libapron.so`, `liboctMPQ.so`, `libboxMPQ.so`, `libpolkaMPQ.so`, + `libmpfr.so.6`) and were found through `--search`.
+    - libzmq came with `libpgm-5.2.so.0`, `libnorm.so.1`, `libsodium.so.23` and the krb5/gssapi libraries.
+    - `optdep-*.txt`: all 5 Apron domains, and the "Protocol ZeroMQ" group with `-server-zmq`/`-server-gui`.
+    - Agent run: `*-apron` PASS in both modes (all 5 domains).
+    - **`zmq-server` FAILed, but in the test client, not the bundle:** `ctypes.CDLL(<bundle>/usr/lib/libzmq.so.5)` → `OSError: libpgm-5.2.so.0: cannot open shared object file`. Bundled libraries have no search path (by design; only executables get the RPATH), the bundled Python's RPATH is its own lib dir, and the workspace has no libpgm.
+    - The mock had passed because its libzmq's dependencies all exist on the workspace.
+    - Fix: `zmq_client.py`'s `load()` preloads (RTLD_GLOBAL, recursively) each dependency the loader names from the library's own directory, so users need no `LD_LIBRARY_PATH` either. The mock reproduces it with `libfcaiold.so.1` (dependency only in the bundle): a plain `CDLL` must fail, `--load-only` must work.
+    - With the fixed client on the rc1 bundle: real round trip `GET kernel.services.getConfig` → `DATA {"version":"33.0", …}` + `CMDLINEOFF`, and `SHUTDOWN` stops the server ("Server shutdown"). Full suite: **116 PASS, 0 FAIL**, 1 WARN (`reloc-spaces`).
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants
@@ -231,11 +239,8 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
    - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
 2. **Release build-20261009-1959, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`), the same as 1818. The delivery tar is 296.3 → 254.9 MB (−41 MB, −14%) from strip and the removed `.map` files. OCaml is plain 4.14.2, `STRIPPED=yes`. The WP counts are identical (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4), and so are the Eva alarm, Ivette under Xvfb, strace and completion.
 3. **Release v33.0-1.0 (2026-10-09), published by the owner, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`). The tar is 254.9 MB, `--fcai-version` gives `33.0-1.0`, and `install.sh --dir/--bin` installs all 9 commands (`frama-c -version` and `why3 --version` work) without touching `$HOME`. One flaw: `BUNDLE_COMMIT=unknown` (fixed for the next build, see Versioning). Notes: `RELEASE-NOTES.md`.
-4. **33.0-1.1 (ZeroMQ + Apron, `BUNDLE_REV=1.1`): mock green, real build pending.** The owner's volume rebuilds Frama-C (no `optdeps-conf` yet). Then check:
-   - `logs/optdep-zmq.txt` and `logs/optdep-apron.txt`;
-   - the libraries `bundle_libs` added (libzmq and its deps, `libapron*`, `libpolkaMPQ`, …) and `GLIBC_REQUIRED`;
-   - the tests `zmq-server` and `*-apron`.
-   - The audit of the other optional dependencies (`conf-graphviz`, MetAcsl's `conf-swi-prolog`, Why3's `sexplib`/`mlmpfr`) is below; not requested.
+4. **33.0-1.1 (ZeroMQ + Apron):** rc1 is a good bundle with a broken test client (see "ZeroMQ and Apron"). The fix is in `delivery/tests/zmq_client.py`, which only goes into the delivery tar, so a rebuild only repackages (Frama-C stamps are kept).
+   - Next: rebuild → `v33.0-1.1` (or rc2), and the agent runs it.
 5. **Optional dependencies audit (2026-10-10):**
    - `frama-c.33.0` depopts: `apron`, `zmq` (now in `OPTIONAL_DEPS`).
    - `conf-graphviz {post}`: `dot` not bundled. Frama-C writes `.dot` files (`-cg`, `-pdg-dot`, Aorai) for the user to render; Ivette draws with the wasm graphviz inside `app.asar`.

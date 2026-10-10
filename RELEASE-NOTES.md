@@ -64,7 +64,7 @@ The shipped `run-tests.sh` checks:
 
 | Machine | Result |
 |---|---|
-| Ubuntu 24.04 (glibc 2.39) | 110 PASS, 0 FAIL. WP on the sample file: Alt-Ergo 50/50, Z3 49/50, CVC4/cvc5 44/50, all provers together 50/50. |
+| Ubuntu 24.04 (glibc 2.39) | 1.1: 116 PASS, 0 FAIL, including Eva with all 5 Apron domains and a real request to the ZeroMQ server. WP on the sample file: Alt-Ergo 50/50, Z3 49/50, CVC4/cvc5 44/50, all provers together 50/50. |
 | RHEL 9.8 (glibc 2.34) | Frama-C, `frama-c-script`, bash completion and Ivette (real display) confirmed working. |
 
 ## Known limitations
