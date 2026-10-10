@@ -1,0 +1,27 @@
+Plug-in name: Server
+Plug-in shortname: server
+Description: Frama-C Request Server (experimental)
+
+***** LIST OF AVAILABLE OPTIONS:
+
+-server-msg-key <k1[,...,kn]>  enables message display for categories
+                    k1,...,kn. Use -server-msg-key help to get a list of
+                    available categories, and * to enable all categories
+
+*** SOCKETS
+
+-server-socket <url>  Launch the Socket server (in background).
+-server-socket-domain <unix|internet>  Socket domain to be used: 'unix' or
+                    'internet'. (preferably use -server-socket-domain="unix|internet")
+
+*** PROTOCOL ZEROMQ
+
+-server-gui <cmd>   Launch the ZeroMQ client (as a child process).
+                    If not started by -server-zmq <url>, the ZeroMQ server
+                    is established with a local 'ipc://<tmp>' address.
+                    The specified <cmd> is passed the actual server <url>
+                    as first and unique argument.
+-server-zmq <url>   Launch the ZeroMQ server (in background).
+                    The server can handle GET requests during the
+                    execution of the frama-c command line.
+                    Finally, the server is executed until shutdown.

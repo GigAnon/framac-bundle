@@ -41,13 +41,17 @@ for s in system-packages opam-init opam-switch opam-deps framac-source framac-bu
 done
 # the switch was "built" with the default compiler configuration
 echo "ocaml=4.14.2 flambda=0 o3=0" > "$R/stamps/ocaml-conf"
+# Frama-C was "built" with the default optional dependencies (opam-optdeps
+# itself still runs: install + findlib check through the mock ocamlfind)
+echo "zmq apron" > "$R/stamps/optdeps-conf"
 echo "LGPL (mock)" > "$R/src/frama-c-33.0/LICENSE"
 cat > "$R/bin/opam" <<EOF
 #!/bin/bash
 # mock opam: 'opam exec ... -- CMD' runs CMD with the mock tools first in PATH
 if [ "\$1" = exec ]; then shift; while [ "\$1" != "--" ]; do shift; done; shift
     PATH="$W/mockbin:\$PATH" exec "\$@"; fi
-if [ "\$1" = var ]; then echo /nonexistent; exit 0; fi
+if [ "\$1" = var ]; then case " \$* " in *" share "*) echo "$R/opam/fcai/share";; *) echo /nonexistent;; esac; exit 0; fi
+if [ "\$1" = list ]; then echo "mock"; exit 0; fi
 if [ "\$1" = source ]; then pkg=""; dir=""
     while [ \$# -gt 0 ]; do case "\$1" in --dir) dir=\$2; shift;; why3.*) pkg=\$1;; esac; shift; done
     case "\$pkg" in why3.*) mkdir -p "\$dir"; cp -a "$MOCKSRC/why3-src/." "\$dir/"; cp "$MOCKSRC/why3.in" "\$dir/why3.in"; exit 0;; esac
@@ -105,10 +109,23 @@ chmod +x "$W/mockbin/why3"
 install -m 755 "$MOCKSRC/alt-ergo" "$W/mockbin/alt-ergo"
 # flambda compiler: -config and the -O3 probe (inlining reports per round)
 install -m 755 "$MOCKSRC/ocamlopt" "$W/mockbin/ocamlopt"
-# alt-ergo is a script in the mock: give the strip step an OCaml-like ELF
-# with debug info and symbols to remove (built with -g)
-printf 'int main(void){ return 0; }\n' > "$W/dbg.c"
-gcc -g -O0 -o "$W3L/why3cpulimit" "$W/dbg.c"
+# findlib: the optional dependencies are "installed"
+printf '#!/bin/sh\n[ "$1" = query ] && case "$2" in zmq|apron) echo "%s/opam/fcai/lib/$2"; exit 0;; esac\nexit 1\n' "$R" > "$W/mockbin/ocamlfind"
+chmod +x "$W/mockbin/ocamlfind"
+# like opam's apron: C libraries in <switch>/share/apron/lib, which no
+# RUNPATH or system path points to (bundle_libs --search must find them).
+# why3cpulimit stands for the executable that needs them; it is also built
+# with -g, so the strip step has debug info and symbols to remove.
+APL="$R/opam/fcai/share/apron/lib"; mkdir -p "$APL"
+printf 'int fcai_apron(void){ return 7; }\n' > "$W/apron.c"
+gcc -shared -fPIC -O2 -o "$APL/libfcaiapron.so" -Wl,-soname,libfcaiapron.so "$W/apron.c"
+printf 'int fcai_apron(void);\nint main(void){ return fcai_apron() == 7 ? 0 : 1; }\n' > "$W/dbg.c"
+gcc -g -O0 -o "$W3L/why3cpulimit" "$W/dbg.c" -L"$APL" -lfcaiapron
+# frama-c -server-zmq: a real libzmq REP server (the system libzmq.so.5,
+# linked by path: no headers needed), bundled with its libzmq
+ZMQLIB=$(ldconfig -p 2>/dev/null | awk '/libzmq\.so\.5 /{print $NF; exit}')
+[ -n "$ZMQLIB" ] || { echo "the mock needs the system libzmq.so.5 (apt install libzmq5)"; exit 1; }
+gcc -O2 -o "$W3L/fcai-mock-zmq-server" "$MOCKSRC/mock-zmq-server.c" "$ZMQLIB"
 
 # --- fake Ivette (an ELF that starts 'frama-c -server-socket' from PATH) ------
 IV="$W/ivette-src/dist/linux-unpacked"
@@ -122,6 +139,21 @@ fi
 cp /bin/true "$IV/chrome-sandbox"; echo MIT > "$IV/LICENSE.electron.txt"
 # an asar like Ivette's, with source maps (build.sh removes them)
 python3 "$MOCKSRC/make_asar.py" "$IV/resources/app.asar"
+
+# --- gen_static_exe.py: optional plug-ins like eva.apron ----------------------
+# (plugin (name eva.apron)) in src/plugins/eva/src/dune: whether dune writes
+# it as a sub-package of plugins/eva/META or as its own plugins/eva.apron/META,
+# its library must be linked (all 'requires' of every plug-in META are taken)
+GS="$W/genstatic"; rm -rf "$GS"
+P="$GS/_build/install/default/lib/frama-c/plugins"; mkdir -p "$P/eva" "$P/eva.apron" "$P/wp"
+printf 'requires = "frama-c-eva.core"\npackage "apron" (\n  requires = "frama-c-eva.apron.core"\n)\n' > "$P/eva/META"
+printf 'requires = "frama-c-eva.numerors.core"\n' > "$P/eva.apron/META"
+printf 'requires = "frama-c-wp.core"\n' > "$P/wp/META"
+libs=$(cd "$REPO/lib" && python3 -I -B -c 'import sys; sys.path.insert(0, "."); import gen_static_exe as g; print(" ".join(g.discover_plugins(sys.argv[1], [])[1]))' "$GS")
+for l in frama-c-eva.core frama-c-eva.apron.core frama-c-eva.numerors.core frama-c-wp.core; do
+    case " $libs " in *" $l "*) ;; *) echo "MOCK FAIL: gen_static_exe misses $l (got: $libs)"; exit 1;; esac
+done
+echo "ok    gen_static_exe: plug-in sub-packages (eva.apron) are linked"
 
 # --- the real build.sh, from step 5 on ---------------------------------------
 rm -rf "$W/dist" "${XDG_RUNTIME_DIR:-/tmp}/fcai-$(id -u)" "/tmp/fcai-$(id -u)"
@@ -157,17 +189,22 @@ CPL="$R/AppDir/usr/lib/why3/why3cpulimit"
 readelf -S "$CPL" | grep -qE '\.symtab|\.debug_' && mfail "why3cpulimit not stripped"
 readelf -d "$CPL" | grep -q 'RPATH' || mfail "why3cpulimit: no RPATH after strip + bundle_libs"
 grep -q 'stripped [0-9]* files' "$R/logs/strip.txt" || mfail "no strip summary"
+[ -f "$R/AppDir/usr/lib/libfcaiapron.so" ] && env -i "$CPL" \
+    || mfail "the library from <switch>/share/apron/lib was not bundled, or why3cpulimit does not run"
+echo "ok    bundle_libs --search: a library from <switch>/share/apron/lib bundled and loaded"
+[ -f "$R/AppDir/usr/lib/libzmq.so.5" ] || mfail "libzmq.so.5 not bundled"
+grep -q '^OPTIONAL_DEPS=zmq apron$' "$R/AppDir/usr/share/fcai/build-info" || mfail "build-info: OPTIONAL_DEPS"
 echo "ok    stripped: $(tail -n1 "$R/logs/strip.txt")"
 grep -q '^OCAML_VERSION=4.14.2$' "$R/AppDir/usr/share/fcai/build-info" \
     || mfail "build-info: OCAML_VERSION is not plain '4.14.2' (flambda is off by default)"
 [ ! -e "$R/logs/o3-probe.txt" ] || mfail "-O3 probe ran although flambda is off"
 echo "ok    default compiler: plain 4.14.2, no OCAMLPARAM (recorded in build-info)"
-[ "$("$R/AppDir/AppRun" --fcai-version)" = 33.0-1.0 ] || mfail "--fcai-version is not 33.0-1.0"
-ls "$W/dist"/frama-c-33.0-1.0-offline-x86_64.tar >/dev/null 2>&1 \
-    && tar -tf "$W/dist"/frama-c-33.0-1.0-offline-x86_64.tar | grep -q 'Frama-C-33.0-1.0-x86_64.AppImage$' \
-    || mfail "delivery names do not carry the bundle version 33.0-1.0"
+[ "$("$R/AppDir/AppRun" --fcai-version)" = 33.0-1.1 ] || mfail "--fcai-version is not 33.0-1.1"
+ls "$W/dist"/frama-c-33.0-1.1-offline-x86_64.tar >/dev/null 2>&1 \
+    && tar -tf "$W/dist"/frama-c-33.0-1.1-offline-x86_64.tar | grep -q 'Frama-C-33.0-1.1-x86_64.AppImage$' \
+    || mfail "delivery names do not carry the bundle version 33.0-1.1"
 grep -qE '^BUNDLE_COMMIT=[0-9a-f]{7,}(-dirty)?$' "$R/AppDir/usr/share/fcai/build-info" || mfail "build-info: BUNDLE_COMMIT is not a commit"
-echo "ok    bundle version 33.0-1.0: --fcai-version, tar and AppImage names, BUNDLE_COMMIT"
+echo "ok    bundle version 33.0-1.1: --fcai-version, tar and AppImage names, BUNDLE_COMMIT"
 
 # --- the delivery archive, as on the offline target ----------------------------
 T="$W/target"; rm -rf "$T"; mkdir -p "$T/home"
@@ -283,4 +320,20 @@ echo "ocaml=4.14.2 flambda=1 o3=1" > "$X/stamps/ocaml-conf"
     && grep -q 'flambda -O3: probe ran 3 rounds' "$X/out3.txt" \
     || { echo "MOCK FAIL: OCAML_FLAMBDA=1 -O3 probe ($X/out3.txt)"; exit 1; }
 echo "ok    OCAML_FLAMBDA=1 (opt-in): OCAMLPARAM=_,O3=1 honoured by the compiler probe"
+
+# --- optional dependencies (zmq apron) added to a volume built without them ---
+# real case: the owner's volume from 33.0-1.0 has no stamps/optdeps-conf, and
+# its Frama-C was built without zmq/apron: Frama-C must be rebuilt
+echo "==> optional dependencies change"
+X="$W/optdeps"; rm -rf "$X"; mkdir -p "$X/bin" "$X/src/frama-c-33.0/_build"
+cp -a "$R/stamps" "$X/stamps"; cp "$R/bin/opam" "$X/bin/opam"; rm -f "$X/stamps/optdeps-conf"
+(cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" STOP_AFTER=optdeps-conf bash "$REPO/build.sh") > "$X/out.txt" 2>&1 \
+    || { echo "MOCK FAIL: build.sh STOP_AFTER=optdeps-conf failed ($X/out.txt)"; exit 1; }
+[ ! -e "$X/stamps/framac-build" ] && [ ! -e "$X/stamps/framac-static" ] && [ ! -e "$X/src/frama-c-33.0/_build" ] \
+    && [ -e "$X/stamps/opam-deps" ] && grep -q 'optional dependencies changed' "$X/out.txt" \
+    || { echo "MOCK FAIL: optional-dependency change handling ($X/out.txt)"; exit 1; }
+rc=0; (cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" OPTIONAL_DEPS="zmq bogus" STOP_AFTER=optdeps-conf bash "$REPO/build.sh") > "$X/out2.txt" 2>&1 || rc=$?
+[ $rc != 0 ] && grep -q "OPTIONAL_DEPS: unknown 'bogus'" "$X/out2.txt" \
+    || { echo "MOCK FAIL: an unknown optional dependency was accepted ($X/out2.txt)"; exit 1; }
+echo "ok    optional dependencies: added to an old volume -> Frama-C rebuilt (deps kept); unknown name refused"
 

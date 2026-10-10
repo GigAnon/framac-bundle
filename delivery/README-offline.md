@@ -2,7 +2,7 @@
 
 This bundle contains one file, `Frama-C-<version>-x86_64.AppImage`, which holds everything needed:
 
-* **Frama-C.** One executable with all of its plug-ins (WP, Eva, RTE, …) statically linked in.
+* **Frama-C.** One executable with all of its plug-ins (WP, Eva, RTE, …) statically linked in, including Eva's Apron domains (`apron-octagon`, `apron-box`, `apron-polka-*`; see `frama-c -eva-domains help`) and the Server's ZeroMQ protocol (`-server-zmq <url>`), when the build included them (`OPTIONAL_DEPS` in `build-info.txt`).
 * **`frama-c-script`.** Frama-C's helper commands (`find-fun`, `list-files`, `make-machdep`, `summary`, …), with their Python scripts.
 * **Python 3.12 with PyYAML.** Only `frama-c-script` uses it; the analysis scripts need Python ≥ 3.10, and the host's Python is not used.
 * **Ivette.** The Frama-C GUI, an Electron app, which replaces the GTK GUI removed in Frama-C 33.
@@ -92,6 +92,10 @@ It runs the bundled Frama-C and the bundled Python, with PyYAML included. The ho
 * `flamegraph` opens a browser.
 
 PyYAML is the pure-Python version: YAML loading is slower than with libyaml, and `yaml.CLoader` is not available.
+
+## Frama-C server over ZeroMQ
+
+`frama-c [analysis options] -then -server-zmq ipc:///tmp/fc.io` keeps a Frama-C server running after the analysis, until a client sends `SHUTDOWN`. Clients use a ZeroMQ `REQ` socket and Frama-C's server protocol (multi-part `GET id request json`, answered by `DATA id json`). `tests/zmq_client.py` is a minimal example: it uses only the Python standard library and the bundled `libzmq.so.5`.
 
 ## Ivette (GUI)
 

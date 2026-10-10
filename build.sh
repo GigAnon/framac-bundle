@@ -36,7 +36,7 @@ SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 : "${FRAMAC_VERSION:=33.0}"
 # revision of this bundle (scripts, components); the published version is
 # <Frama-C version>-<bundle revision>, e.g. 33.0-1.0
-: "${BUNDLE_REV:=1.0}"
+: "${BUNDLE_REV:=1.1}"
 BUNDLE_VERSION="$FRAMAC_VERSION-$BUNDLE_REV"
 : "${OCAML_VERSION:=4.14.2}"
 : "${OCAML_FLAMBDA:=0}"
@@ -75,6 +75,12 @@ BUNDLE_VERSION="$FRAMAC_VERSION-$BUNDLE_REV"
 # (so they are linked statically like the others); space-separated opam
 # package.version list
 : "${EXTRA_PLUGINS=frama-c-metacsl.0.11}"
+# optional opam dependencies of Frama-C (its opam "depopts"), installed
+# before it is built so that it compiles the parts that use them:
+#   zmq    the Server plug-in's ZeroMQ backend (-server-zmq)
+#   apron  Eva's Apron numerical domains (apron-*, see -eva-domains help)
+# "" builds without them.  Their shared libraries are bundled.
+: "${OPTIONAL_DEPS=zmq apron}"
 : "${IVETTE_PREBUILT:=}"
 : "${NODE_VERSION:=22.22.2}"
 : "${EXCLUDE_PLUGINS:=e-acsl,e_acsl,eacsl}"
@@ -107,7 +113,8 @@ else
 fi
 : "${JOBS:=$(nproc)}"
 
-APT_PACKAGES="build-essential m4 pkg-config unzip curl ca-certificates git patchelf file
+# libzmq3-dev: opam zmq (conf-zmq); libmpfr-dev, perl: opam apron/mlgmpidl
+APT_PACKAGES="libzmq3-dev libmpfr-dev perl build-essential m4 pkg-config unzip curl ca-certificates git patchelf file
 python3 binutils xz-utils bzip2 strace libgmp-dev zlib1g-dev libffi-dev graphviz autoconf time
 desktop-file-utils"
 # to run Ivette (Electron) in the self-test, under Xvfb
@@ -211,7 +218,7 @@ if [ -f "$STAMPS/opam-switch" ]; then
     if [ "$old_conf" != "$OCAML_CONF" ]; then
         warn "compiler configuration changed ($old_conf -> $OCAML_CONF): rebuilding the switch, the opam packages, Frama-C and why3"
         rm -f "$STAMPS"/opam-switch "$STAMPS"/opam-deps "$STAMPS"/framac-build "$STAMPS"/framac-static \
-              "$STAMPS"/why3-reloc "$STAMPS"/ocaml-conf
+              "$STAMPS"/why3-reloc "$STAMPS"/ocaml-conf "$STAMPS"/opam-optdeps "$STAMPS"/optdeps-conf
         rm -rf "$FC_SRC/_build"
     fi
 fi
@@ -258,6 +265,36 @@ if step opam-deps; then
     opam install --switch="$SWITCH" -y --deps-only "frama-c.$FRAMAC_VERSION"
     oexec why3 --version
     done_step opam-deps
+fi
+
+# optional dependencies (OPTIONAL_DEPS): Frama-C's build picks up whatever is
+# installed, so a change of the list rebuilds Frama-C.  Volumes from before
+# this step existed built Frama-C without any.
+KNOWN_OPTIONAL_DEPS="zmq apron"
+for d in $OPTIONAL_DEPS; do
+    case " $KNOWN_OPTIONAL_DEPS " in *" $d "*) ;; *) die "OPTIONAL_DEPS: unknown '$d' (known: $KNOWN_OPTIONAL_DEPS)" ;; esac
+done
+if [ -f "$STAMPS/opam-deps" ] && [ "$(cat "$STAMPS/optdeps-conf" 2>/dev/null)" != "$OPTIONAL_DEPS" ]; then
+    warn "optional dependencies changed ('$(cat "$STAMPS/optdeps-conf" 2>/dev/null)' -> '$OPTIONAL_DEPS'): Frama-C will be rebuilt"
+    rm -f "$STAMPS"/opam-optdeps "$STAMPS"/framac-build "$STAMPS"/framac-static
+    rm -rf "$FC_SRC/_build"
+fi
+if [ "${STOP_AFTER:-}" = optdeps-conf ]; then say "STOP_AFTER=optdeps-conf"; exit 0; fi
+if step opam-optdeps; then
+    # the ones not wanted (any more) must not be installed: Frama-C would use them
+    for d in $KNOWN_OPTIONAL_DEPS; do
+        case " $OPTIONAL_DEPS " in *" $d "*) ;; *)
+            if oexec ocamlfind query "$d" >/dev/null 2>&1; then opam remove --switch="$SWITCH" -y "$d"; fi ;;
+        esac
+    done
+    # shellcheck disable=SC2086
+    if [ -n "$OPTIONAL_DEPS" ]; then opam install --switch="$SWITCH" -y $OPTIONAL_DEPS; fi
+    for d in $OPTIONAL_DEPS; do
+        oexec ocamlfind query "$d" >/dev/null 2>&1 || die "optional dependency $d: 'opam install $d' left no findlib package $d"
+        echo "optional dependency $d: $(oexec ocamlfind query "$d")"
+    done
+    echo "$OPTIONAL_DEPS" > "$STAMPS/optdeps-conf"
+    done_step opam-optdeps
 fi
 
 # ------------------------------------------------------- 2. Frama-C sources
@@ -502,7 +539,12 @@ if [ ! -x "$BUILD_ROOT/tools/patchelf/bin/patchelf" ]; then
     rm -rf "$BUILD_ROOT/tools/patchelf"; mkdir -p "$BUILD_ROOT/tools/patchelf"
     tar xzf "$DL/patchelf.tar.gz" -C "$BUILD_ROOT/tools/patchelf"
 fi
-python3 "$SRC_DIR/lib/bundle_libs.py" "$APPDIR" --patchelf "$BUILD_ROOT/tools/patchelf/bin/patchelf"
+# opam installs Apron's C libraries (libapron.so, liboctMPQ.so, ...) under
+# <switch>/share/apron/lib, where nothing points: bundle_libs looks there too
+SEARCH=()
+OPAM_SHARE=$(opam var --switch="$SWITCH" share 2>/dev/null || true)
+if [ -n "$OPAM_SHARE" ] && [ -d "$OPAM_SHARE/apron/lib" ]; then SEARCH+=(--search "$OPAM_SHARE/apron/lib"); fi
+python3 "$SRC_DIR/lib/bundle_libs.py" "$APPDIR" --patchelf "$BUILD_ROOT/tools/patchelf/bin/patchelf" "${SEARCH[@]}"
 
 # `dune install --relocatable` baked the dune-site locations into frama-c as
 # <exe>/../ + <absolute stage path>, i.e. usr/$STAGE/share/... .  Parts of
@@ -748,6 +790,10 @@ ver() { "$APPDIR/usr/bin/$1" --version 2>&1 | head -n1; }
     echo "STRIPPED=$([ "$STRIP" = 1 ] && echo yes || echo no)"
     echo "PROVERS=$PROVERS"
     echo "EXTRA_PLUGINS=$EXTRA_PLUGINS"
+    echo "OPTIONAL_DEPS=$OPTIONAL_DEPS"
+    for d in $OPTIONAL_DEPS; do
+        echo "OPTIONAL_DEP_$(echo "$d" | tr a-z- A-Z_)=$(opam list --switch="$SWITCH" --installed --short --columns=version "$d" 2>/dev/null | head -n1)"
+    done
     if [ -f "$APPDIR/usr/lib/ivette/.fcai-exe" ]; then
         echo "IVETTE=yes ($(cat "$APPDIR/usr/lib/ivette/.fcai-exe"), $(du -sh "$APPDIR/usr/lib/ivette" | cut -f1))"
     else
@@ -777,6 +823,23 @@ for key in GLIBC_REQUIRED GLIBC_REQUIRED_IVETTE; do
             | sed "s|$APPDIR/||" | tee "$LOGDIR/glibc-too-new.txt"
         die "$key=$need > GLIBC_MAX=$GLIBC_MAX (files above, in logs/glibc-too-new.txt): build with an older BASE_IMAGE (default ubuntu:20.04), or raise GLIBC_MAX"
     fi
+done
+
+# the optional dependencies must have reached Frama-C (they are only used
+# when found at build time)
+say "optional dependencies in Frama-C"
+for d in $OPTIONAL_DEPS; do
+    case "$d" in
+        zmq)
+            env -i HOME="$BUILD_ROOT" PATH=/usr/bin:/bin "$APPDIR/AppRun" frama-c -server-h > "$LOGDIR/optdep-zmq.txt" 2>&1 || true
+            grep -q -- '-server-zmq' "$LOGDIR/optdep-zmq.txt" \
+                || die "zmq is installed, but frama-c has no -server-zmq (logs/optdep-zmq.txt)" ;;
+        apron)
+            env -i HOME="$BUILD_ROOT" PATH=/usr/bin:/bin "$APPDIR/AppRun" frama-c -eva-domains help > "$LOGDIR/optdep-apron.txt" 2>&1 || true
+            grep -qE '^ +apron-' "$LOGDIR/optdep-apron.txt" \
+                || die "apron is installed, but Eva lists no apron-* domain (logs/optdep-apron.txt)" ;;
+    esac
+    echo "optional dependency $d: present in frama-c"
 done
 
 say "strings check (informational): build paths embedded in bundle files"

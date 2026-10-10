@@ -1,0 +1,50 @@
+[eva] List of available domains:
+  cvalue               Main analysis domain, enabled by default. Should not be
+                       disabled.
+  equality             Infers equalities between syntactic C expressions. Makes
+                       the analysis less dependent on temporary variables and
+                       intermediate computations.
+  symbolic-locations   Infers values of symbolic locations represented by
+                       imprecise lvalues, such as t[i] or *p when the possible
+                       values of [i] or [p] are imprecise.
+  gauges               Infers linear inequalities between the variables
+                       modified within a loop and a special loop counter.
+  octagon              Infers integer relations of the form b < ±X ± Y < e,
+                       where X, Y are program lvalues and b, e are constants.
+  multidim             Experimental. Improve the precision over arrays of
+                       structures or multidimensional arrays.
+  bitwise              Infers bitwise information to interpret more precisely
+                       bitwise operators.
+  taint                Experimental. Taint analysis
+  numerors             Experimental. Infers ranges for the absolute and
+                       relative errors in floating-point computations.
+  sign                 Infers the sign of program variables.
+  apron-box            Experimental. Binding to the apron-box domain of the
+                       Apron library. See
+                       https://antoinemine.github.io/Apron/doc/ for more
+                       details.
+  apron-octagon        Experimental. Binding to the apron-octagon domain of the
+                       Apron library. See
+                       https://antoinemine.github.io/Apron/doc/ for more
+                       details.
+  apron-polka-equality Experimental. Binding to the apron-polka-equality domain
+                       of the Apron library. See
+                       https://antoinemine.github.io/Apron/doc/ for more
+                       details.
+  apron-polka-loose    Experimental. Binding to the apron-polka-loose domain of
+                       the Apron library. See
+                       https://antoinemine.github.io/Apron/doc/ for more
+                       details.
+  apron-polka-strict   Experimental. Binding to the apron-polka-strict domain
+                       of the Apron library. See
+                       https://antoinemine.github.io/Apron/doc/ for more
+                       details.
+  mthread              Experimental. Domain for the analysis of concurrent
+                       programs. Automatically enabled by the -mthread
+                       parameter.
+  inout                Experimental. Infers the inputs and outputs of each
+                       function.
+  printer              Debug domain, only useful for developers. Prints the
+                       transfer functions used during the analysis.
+  traces               Experimental. Builds an over-approximation of all the
+                       traces that lead to a statement.

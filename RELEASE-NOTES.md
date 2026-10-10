@@ -1,8 +1,16 @@
-# Frama-C 33.0 offline bundle — 1.0 (`33.0-1.0`)
+# Frama-C 33.0 offline bundle — 1.1 (`33.0-1.1`)
+
+## Changes since 1.0
+
+- **Eva Apron domains:** `apron-octagon`, `apron-box`, `apron-polka-loose`, `apron-polka-strict` and `apron-polka-equality` (`-eva-domains …`). They are experimental upstream. Eva's built-in `octagon` domain was already there.
+- **ZeroMQ server:** `-server-zmq <url>` and `-server-gui <cmd>`. For example, `frama-c file.c -eva -then -server-zmq ipc:///tmp/fc.io` keeps the analysed project available to ZeroMQ clients until they send `SHUTDOWN`. `tests/zmq_client.py` is a minimal client.
+- `build-info.txt` records the repository commit the bundle was built from (1.0 said `unknown`).
+
+## About the bundle
 
 Frama-C 33.0 (Arsenic) with its GUI, Why3 and four SMT provers, packaged as one self-contained AppImage for Linux x86_64. It needs no network access, no root and no installation beyond copying files, and it works from any directory.
 
-**Download:** `frama-c-33.0-1.0-offline-x86_64.tar` (~255 MB). Check it with `sha256sum -c SHA256SUMS` once unpacked.
+**Download:** `frama-c-33.0-1.1-offline-x86_64.tar` (~255 MB). Check it with `sha256sum -c SHA256SUMS` once unpacked.
 
 ## What's inside
 
@@ -17,6 +25,8 @@ Frama-C 33.0 (Arsenic) with its GUI, Why3 and four SMT provers, packaged as one 
 | Z3 | 4.13.0 | |
 | CVC4 | 1.8 | |
 | cvc5 | 1.2.1 | |
+| Apron | opam `apron` (C libraries bundled) | Eva's `apron-*` domains. |
+| ZeroMQ | libzmq 4.3 (bundled) + opam `zmq` | `-server-zmq`. |
 | C preprocessor | gcc 9.4 (`cpp` only) | Only Frama-C's own libc headers are searched, never the host's. |
 
 The provers come pre-configured for WP and Why3, whatever directory the bundle is in.
@@ -31,17 +41,17 @@ The provers come pre-configured for WP and Why3, whatever directory the bundle i
 ## Install
 
 ```sh
-tar xf frama-c-33.0-1.0-offline-x86_64.tar && cd frama-c-33.0-1.0-offline-x86_64
+tar xf frama-c-33.0-1.1-offline-x86_64.tar && cd frama-c-33.0-1.1-offline-x86_64
 ./run-tests.sh      # optional: acceptance tests, writes fcai-test-report-<host>-<date>.txt
-./install.sh        # user: ~/.local/opt/frama-c-33.0-1.0 + ~/.local/bin
-                    # root: /opt/frama-c-33.0-1.0 + /usr/local/bin
+./install.sh        # user: ~/.local/opt/frama-c-33.0-1.1 + ~/.local/bin
+                    # root: /opt/frama-c-33.0-1.1 + /usr/local/bin
 ```
 
 **Commands installed:** `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, `cvc4`, `cvc5`, `alt-ergo`, `setup_completion.sh`.
 
 - **Bash completion.** Each user who wants it runs `setup_completion.sh` once; root can run `setup_completion.sh --system` for everybody. `install.sh` never writes into anyone's home directory. Completion covers options, values such as `-wp-prover`, message and warning keys and machdeps, `frama-c-script` commands and `why3` commands.
 - **Your own Why3 configuration.** Set `WHY3CONFIG` (or `FCAI_WHY3CONFIG`) and it is used instead of the bundled configuration.
-- **Without installing.** `./Frama-C-33.0-1.0-x86_64.AppImage <frama-c arguments>` runs Frama-C directly.
+- **Without installing.** `./Frama-C-33.0-1.1-x86_64.AppImage <frama-c arguments>` runs Frama-C directly.
 - **Version and build details.** `--fcai-version` prints the bundle version and `--fcai-info` the build details.
 
 ## Tested

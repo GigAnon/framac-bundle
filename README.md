@@ -5,6 +5,7 @@ These scripts build a single AppImage containing:
 * **Frama-C 33.0**, one executable with every plug-in statically linked, including MetAcsl (E-ACSL excluded);
 * **`frama-c-script`**, with its Python helpers and a bundled **Python 3.12 + PyYAML**;
 * **Ivette**, the Electron GUI, built from the Frama-C sources;
+* the optional parts of Frama-C that need extra libraries: Eva's **Apron domains** and the Server's **ZeroMQ** protocol (`-server-zmq`);
 * **Why3 1.8.2**, as a library inside Frama-C and as the `why3` command, with the provers **Z3 4.13.0, CVC4 1.8, cvc5 1.2.1 and Alt-Ergo 2.6.2**;
 * **a C preprocessor** (the `gcc` driver and `cc1`);
 * **bash completion** for `frama-c`, `ivette`, `frama-c-script` and `why3`, generated from the bundled Frama-C's own help.
@@ -37,6 +38,7 @@ Output: `dist/frama-c-33.0-1.0-offline-x86_64.tar`, plus `dist/logs/` (build log
 * **Minimum glibc on targets.** It is the glibc of the build image: `ubuntu:20.04` (the default) gives 2.31. The build fails if any bundled binary needs a glibc newer than `GLIBC_MAX` (default 2.34, i.e. RHEL 9), and lists the offending files in `logs/glibc-too-new.txt`. On a host that is too old, the bundle, `install.sh` and `run-tests.sh` stop with a clear message instead of the loader's `GLIBC_x.y not found`.
 * **Ivette.** Built with `make -C ivette dist` and Node.js 22.22.2 (`NODE_VERSION`). `IVETTE_PREBUILT=<file|dir>` uses an existing Ivette AppImage or unpacked app instead, and `WITH_IVETTE=0` leaves Ivette out. The self-test starts Ivette under Xvfb and checks that it runs the bundled `frama-c` as its server.
 * **Python for `frama-c-script`.** The Frama-C 33 analysis scripts need Python ≥ 3.10, but RHEL 9 ships 3.9. So the bundle carries a relocatable CPython 3.12 (python-build-standalone, needs glibc ≥ 2.17, about 76 MB) and the pure-Python part of PyYAML 6.0.3, which `make-machdep` needs. `WITH_PYTHON=0` leaves them out; `frama-c-script` then needs a host python3 ≥ 3.10 with PyYAML.
+* **Optional dependencies.** `OPTIONAL_DEPS="zmq apron"` (the default) installs these opam packages before Frama-C is built, so that it compiles Eva's Apron domains and the ZeroMQ server; their shared libraries are bundled, and the build fails if they did not make it into Frama-C. `OPTIONAL_DEPS=` builds without them. Changing the list rebuilds Frama-C automatically.
 * **Alt-Ergo licence.** Alt-Ergo 2.6 is under the OCamlPro non-commercial licence. `ALTERGO_PKG=alt-ergo-free.2.4.3` uses the free version instead, and `ALTERGO_PKG=` leaves Alt-Ergo out.
 
 ## Install and test (offline machine)
@@ -67,6 +69,7 @@ The installed commands are `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, 
 
 * **Prerequisites:** the host glibc.
 * **WP:** each prover on its own (each must prove something Qed can't), all provers together (every goal proved), and a negative proof that must fail.
+* **Optional parts:** Eva with each Apron domain, and a real request to `frama-c -server-zmq` (the bundled Python calling the bundled libzmq).
 * **Other tools:** Eva with the libc headers, `frama-c-script` (`find-fun`, plus `make-machdep --help`, which needs PyYAML), and the bash completion.
 * **Locations:** the bundle mounted, extracted, copied, renamed, from a path containing spaces, and with the original deleted.
 * **Isolation:** a concurrent job, a job without network access (`unshare -rn`), and an `strace` of every file touched, which fails if anything under the build paths, or a host compiler, prover or why3/frama-c install, is used.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bundle_libs.py APPDIR [--patchelf PATH]
+bundle_libs.py APPDIR [--patchelf PATH] [--search DIR]...
 
 For every dynamically-linked ELF under APPDIR, copy all non-glibc
 shared-library dependencies (as reported by ldd, i.e. the full transitive
@@ -16,6 +16,11 @@ separate-code; e.g. libmpc.so.3 on ubuntu:20.04) patchelf 0.18 aligns it to
 4 KiB only, and glibc 2.31 then refuses the library ("ELF load command
 address/offset not properly aligned").  Every file patchelf touches is
 checked for that, and retried with --page-size = its largest p_align.
+
+--search DIR: extra directories where dependencies are looked up while
+collecting them (opam installs Apron's C libraries under <switch>/share/
+apron/lib, which nothing points to).  The final check never uses them:
+everything must then resolve inside APPDIR.
 
 glibc itself (libc, libm, libpthread, libdl, librt, ld-linux, ...) is never
 bundled: it is the one thing taken from the host.  Statically linked
@@ -143,6 +148,8 @@ def main():
         patchelf = sys.argv[sys.argv.index("--patchelf") + 1]
     libdir = os.path.join(appdir, "usr", "lib")
     os.makedirs(libdir, exist_ok=True)
+    search = [os.path.abspath(sys.argv[i + 1]) for i, a in enumerate(sys.argv) if a == "--search"]
+    search_path = ":".join(search) or None
 
     # collect candidate ELF files (executables and non-bundled libs)
     elves = []
@@ -161,7 +168,7 @@ def main():
             continue
         if "dynamically linked" not in info and "shared object" not in info:
             continue
-        for name, target in ldd(p):
+        for name, target in ldd(p, libdir=search_path):
             if name in GLIBC or os.path.basename(target) in GLIBC:
                 continue
             if name not in copied:

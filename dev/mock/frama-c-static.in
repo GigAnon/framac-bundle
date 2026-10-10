@@ -9,6 +9,16 @@ args=("$@"); prover=alt-ergo; files=(); mode=""
 for ((i=0;i<${#args[@]};i++)); do a=${args[$i]}
   case "$a" in
     -server-socket) echo "[server] listening"; sleep 120; exit 0;;
+    # a real libzmq REP server with Frama-C's protocol (dev/mock/mock-zmq-server.c,
+    # shipped next to why3server so that libzmq gets bundled)
+    -server-zmq) exec "$WHY3LIB/fcai-mock-zmq-server" "${args[$((i+1))]:-}";;
+    # domains as listed by -eva-domains help; an unknown one is a user error
+    -eva-domains) d=${args[$((i+1))]:-}; i=$((i+1))
+        [ "$d" = help ] && { cat "$share/../mock-help/eva-domains.txt"; exit 0; }
+        for x in ${d//,/ }; do
+            grep -qE "^  $x( |$)" "$share/../mock-help/eva-domains.txt" \
+                || { echo "[eva] User Error: invalid domain \"$x\" for option -eva-domains."; exit 1; }
+        done;;
     -version) echo "33.0 (Arsenic) [MOCK]"; exit 0;;
     -print-share-path) echo "$share"; echo "$baked"; exit 0;;
     -print-lib-path) echo "$prefix/@STAGE@/lib/frama-c/lib"; exit 0;;   # real 33.0: baked entry only

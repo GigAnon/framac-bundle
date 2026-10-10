@@ -353,12 +353,68 @@ EOS
             && grep -qiE 'division.by.zero|division_by_zero' "$LOGS/$m-eva.log"; then
         result PASS "$m-eva" "Eva ran, expected alarm found"
     else result FAIL "$m-eva" "Eva run failed or expected alarm missing"; fi
+
+    # 10. Eva with each Apron domain (optional dependency 'apron'): the
+    #     domains exist only if Apron was there when Frama-C was built, and
+    #     they need its shared libraries (bundled)
+    if [[ " $(binfo OPTIONAL_DEPS) " == *" apron "* ]]; then
+        runl "$m-eva-domains" "$fc" frama-c -eva-domains help
+        local doms d bad=""
+        doms=$(grep -oE '^ +apron-[a-z0-9-]+' "$LOGS/$m-eva-domains.log" | tr -d ' ' | tr '\n' ' ')
+        if [ -z "$doms" ]; then
+            result FAIL "$m-apron" "no apron-* domain in 'frama-c -eva-domains help' (see log)"
+        else
+            for d in $doms; do
+                mkdir -p "$WORK/$m-apron-$d"
+                if ! (cd "$WORK/$m-apron-$d" && runl "$m-apron-$d" "$fc" frama-c -eva -eva-domains "$d" "$TESTS/eva.c") \
+                        || ! grep -qiE 'division.by.zero|division_by_zero' "$LOGS/$m-apron-$d.log"; then
+                    bad="$bad $d"
+                fi
+            done
+            if [ -z "$bad" ]; then result PASS "$m-apron" "Eva ran with each Apron domain: ${doms% }"
+            else result FAIL "$m-apron" "Eva failed with:$bad (see $m-apron-*.log)"; fi
+        fi
+    fi
 }
 
 for m in "${MODES[@]}"; do mode_tests "$m"; done
 
 # the remaining tests use the first working mode (preferably extracted/dir)
 M=${MODES[-1]}; FCM=${FC[$M]}
+
+# ---------------------------------------------------------------------------
+# ZeroMQ server (optional dependency 'zmq'): -server-zmq exists only if zmq
+# was there when Frama-C was built; binding an ipc:// endpoint loads the
+# bundled libzmq and creates the socket file
+if [[ " $(binfo OPTIONAL_DEPS) " == *" zmq "* ]]; then
+    echo "== zeromq server"
+    runl zmq-help "$FCM" frama-c -server-h
+    if ! grep -q -- '-server-zmq' "$LOGS/zmq-help.log"; then
+        result FAIL zmq-server "no -server-zmq in 'frama-c -server-h' (see log)"
+    else
+        mkdir -p "$WORK/zmq"; zsock="$WORK/zmq/fc.ipc"; rm -f "$zsock"
+        ( cd "$WORK/zmq" && exec "$FCM" frama-c -server-zmq "ipc://$zsock" ) > "$LOGS/zmq-server.log" 2>&1 &
+        zpid=$!; zup=""
+        for _ in $(seq 1 150); do
+            if [ -S "$zsock" ]; then zup=1; break; fi
+            kill -0 "$zpid" 2>/dev/null || break
+            sleep 0.2
+        done
+        if [ -z "$zup" ]; then
+            result FAIL zmq-server "frama-c -server-zmq did not bind its ipc socket (see zmq-server.log)"
+        else
+            # one real request (kernel.services.getConfig) from a REQ client:
+            # the bundled Python, calling the bundled libzmq through ctypes
+            runl zmq-client "$FCM" --fcai-run sh -c '
+                py="$FCAI_ROOT/usr/lib/fcai-python/bin/python3"; [ -x "$py" ] || py=python3
+                exec "$py" -I "$1" "$FCAI_ROOT/usr/lib/libzmq.so.5" "$2"' sh "$TESTS/zmq_client.py" "ipc://$zsock"
+            if grep -q '^version: ' "$LOGS/zmq-client.log"; then
+                result PASS zmq-server "frama-c -server-zmq answered kernel.services.getConfig ($(sed -n 's/^version: //p' "$LOGS/zmq-client.log" | head -n1))"
+            else result FAIL zmq-server "the ZeroMQ server bound its socket but gave no valid reply (see zmq-client.log)"; fi
+        fi
+        kill "$zpid" 2>/dev/null; pkill -f -- "-server-zmq ipc://$zsock" 2>/dev/null; wait "$zpid" 2>/dev/null
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Ivette (Electron GUI)

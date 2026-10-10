@@ -26,7 +26,7 @@ Read this before changing anything. `README.md` is the user-facing overview, and
 
 **Real builds can be tested by the agent.** The owner publishes the delivery tar as a GitHub release of `GigAnon/framac-bundle`, a public repo, e.g. `gh release create build-<date> dist/frama-c-33.0-1.0-offline-x86_64.tar`. The agent downloads it (release assets are reachable), checks `SHA256SUMS`, and runs the shipped `run-tests.sh` in its workspace. That workspace is Ubuntu 24.04 with glibc 2.39, where FUSE, unprivileged `unshare` and Xvfb all worked on 2026-10-08, so it covers what the build container SKIPs.
 
-**The agent's workspace network may be restricted.** In the first session opam.ocaml.org, frama-c.com, git.frama-c.com and nodejs.org were blocked, while GitHub release assets were reachable. A real build was therefore impossible there, which is why the mock exists. Check what is reachable before relying on it. Never try to get around a proxy refusal.
+**The agent's workspace network may be restricted.** In the first sessions opam.ocaml.org, frama-c.com, git.frama-c.com and nodejs.org were blocked, while GitHub release assets were reachable; that is why the mock exists. On 2026-10-10 the owner opened them: all four answered 200, and the Frama-C 33.0 source tarball could be read (used for the Apron/ZeroMQ facts below). Check what is reachable before relying on it. Never try to get around a proxy refusal.
 
 ## Pipeline (`build.sh`)
 
@@ -36,19 +36,20 @@ Each step is stamped in `$BUILD_ROOT/stamps`; `FORCE=step` or `FORCE=all` reruns
 |---|---|---|
 | 0 | system-packages | apt inside the container (not stamped there). Electron runtime libraries + Xvfb when `WITH_IVETTE=1`. |
 | 1 | opam binary (pinned SHA256), `opam-init`, `opam-switch` (OCaml 4.14.2, plain), `opam-deps` | `OCAML_FLAMBDA=1` (opt-in, **failed on the real build**, see below) uses `ocaml-variants.4.14.2+options` + `ocaml-option-flambda`, which must report `flambda: true`, then exports `OCAMLPARAM=_,O3=1` (`OCAML_O3`) for the opam deps, Frama-C and why3; a probe checks it. `stamps/ocaml-conf` records the compiler configuration; a change rebuilds the switch, deps, Frama-C (`_build` removed) and why3. Installs `ALTERGO_PKG` first, then `--deps-only frama-c.33.0`. |
+| 1b | `opam-optdeps` | `OPTIONAL_DEPS` (default `zmq apron`, Frama-C's opam depopts): `opam install` before Frama-C is built, each checked with `ocamlfind query`; the known ones that are not wanted are removed. `stamps/optdeps-conf` records the list; a change (or a volume without it, i.e. 1.0) rebuilds Frama-C (`_build` removed). apt: `libzmq3-dev libmpfr-dev perl`. |
 | 2 | `framac-source` | `opam source frama-c.33.0`. |
 | 2b | vendoring (not stamped) | `EXTRA_PLUGINS` (MetAcsl) is copied into `src/plugins/fcai-extra-<pkg>/` with `opam source`. The `.fcai-<pkg>` marker forces a rebuild when the list changes. |
 | 3 | `framac-build` | With flambda, first the dune `-O3` probe. Then `dune build --release @install`. Checks that each vendored plug-in registered a dune-site plug-in META. |
 | 4 | `framac-static` | `lib/gen_static_exe.py` finds the `frama-c` executable stanza, reads the plug-in libraries from `_build/install/default/lib/frama-c/plugins/*/META`, and writes `src/init/boot/fcai_static/dune`. It then builds and runs `dune install --release --relocatable --prefix $STAGE`. |
 | 4b | `why3-reloc` | Relocatable why3 CLI: `opam source why3.<ver>`, `./configure --enable-relocation --prefix=$BUILD_ROOT/why3-reloc`, `make`, `make install`. Its `bin/why3` and `lib/why3/{commands,plugins}` are what the AppDir ships. |
 | 5 | downloads | Z3 4.13.0 (glibc-2.31 build), CVC4 1.8 (static, CVC4-archived repo), cvc5 1.2.1 (static), appimagetool 1.9.0, type2 runtime 20251108. All pinned by SHA256. |
-| 6 | AppDir | The static `frama-c`, `frama-c-script` (patched by `lib/patch_script.py`: each `$(... -print-share-path/-print-lib-path)` keeps its first line; original and patch report in `logs/`) + its helpers `usr/lib/frama-c/lib` (analysis-scripts, make_machdep), `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), **strip** (`STRIP=1`: `frama-c`, `why3`, `alt-ergo`, the why3 helpers with `strip`, the `.cmxs` with `--strip-unneeded`; before `bundle_libs`; sizes in `logs/strip.txt`), `bundle_libs.py` (pinned static patchelf 0.18.0; executables get a relative DT_RPATH, copied libraries are **not modified**, every patched file is checked for PT_LOAD alignment, and `ldd` errors fail the build), and the `usr$STAGE → usr` symlink. |
+| 6 | AppDir | The static `frama-c`, `frama-c-script` (patched by `lib/patch_script.py`: each `$(... -print-share-path/-print-lib-path)` keeps its first line; original and patch report in `logs/`) + its helpers `usr/lib/frama-c/lib` (analysis-scripts, make_machdep), `share/`, empty plug-in site dirs, Why3 data and helper programs, provers, the gcc preprocessor (`gcc-real` + a `-nostdinc` wrapper + `cc1`), **strip** (`STRIP=1`: `frama-c`, `why3`, `alt-ergo`, the why3 helpers with `strip`, the `.cmxs` with `--strip-unneeded`; before `bundle_libs`; sizes in `logs/strip.txt`), `bundle_libs.py` (pinned static patchelf 0.18.0; `--search <switch>/share/apron/lib` for collecting only; executables get a relative DT_RPATH, copied libraries are **not modified**, every patched file is checked for PT_LOAD alignment, and `ldd` errors fail the build), and the `usr$STAGE → usr` symlink. |
 | 7 | relocation check | Writes `usr/share/fcai/dune-dir-locations`. Moves a copy; **every** `-print-share-path` entry must exist and contain `libc/`. Parses a C file with `#include`s while the original AppDir is moved away. Runs `-plugins`. |
 | 8 | why3.conf template | `why3 config detect` against the bundled provers (`PATH=usr/bin` only). The AppDir path is replaced by `@APPDIR@`, and `datadir`/`libdir` lines are dropped. |
 | 8c | Python | `WITH_PYTHON=1`: python-build-standalone CPython 3.12 into `usr/lib/fcai-python` (for `frama-c-script`), plus pure-Python PyYAML 6.0.3 (git tag, commit-pinned), trimmed and smoke-tested. |
 | 8d | completion | `lib/gen_completion.py` runs the bundled `frama-c -plugins`, `-kernel-h` and each `-<x>-h`, `-machdep help` and `frama-c-script help`, and fills `lib/completion.bash.in` into `usr/share/fcai/completion/frama-c.bash`. Raw outputs go to `logs/completion-src/`. |
 | 8b | Ivette | Node 22.22.2 (checked against nodejs.org SHASUMS) + corepack/yarn 1. Runs `make -C ivette api` then `make -C ivette dist`. The resulting `dist/linux-unpacked` is imported; `IVETTE_PREBUILT` overrides. `lib/asar_prune.py` then removes `*.map` from `resources/app.asar` (`IVETTE_PRUNE_MAPS=1`) and verifies every remaining file (log `ivette-asar-prune.txt`). |
-| 9 | build-info | Versions, `GLIBC_REQUIRED` (+ `_IVETTE`), `BUILD_ROOTS` (used by the strace test), and a strings scan of embedded build paths (informational only). **Dies** if a `GLIBC_REQUIRED*` > `GLIBC_MAX`, listing the files in `logs/glibc-too-new.txt`. |
+| 9 | build-info | Versions, `OPTIONAL_DEPS` (+ `OPTIONAL_DEP_<NAME>` versions); then each optional dependency must have reached Frama-C (`-server-zmq` in `-server-h`, `apron-*` in `-eva-domains help`) or the build dies (`logs/optdep-*.txt`). `GLIBC_REQUIRED` (+ `_IVETTE`), `BUILD_ROOTS` (used by the strace test), and a strings scan of embedded build paths (informational only). **Dies** if a `GLIBC_REQUIRED*` > `GLIBC_MAX`, listing the files in `logs/glibc-too-new.txt`. |
 | 10 | self-test | `run-tests.sh` on the AppDir, using a clean `PATH`, from `/tmp`. If only `ivette-*` tests fail, the build still packages, with a warning. |
 | 11–12 | AppImage + delivery tar | The tar contains: AppImage, `install.sh`, `run-tests.sh`, `tests/`, `README.md`, `build-info.txt`, `SHA256SUMS`. |
 
@@ -162,6 +163,20 @@ Do not "fix" these back. Each one was observed in a real log.
   - **Caveat, from opam-repository:** `frama-c.33.0`'s opam file (and not 32.0 or earlier) lists `ocaml-variants` `4.14.{0..5}+flambda` and `+flambda-fp` as conflicts. Those legacy package names no longer exist in the repository, and our `+options` route is not covered. No reason is documented. So results must be compared with the non-flambda build: WP counts (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4) and Eva's alarm.
 - **Versioning (owner, 2026-10-09).** The bundle version is `<Frama-C version>-<bundle revision>`: `BUNDLE_REV=1.0` gives `33.0-1.0`. It appears in the tar and directory name (`frama-c-33.0-1.0-offline-x86_64`), in the AppImage name (`Frama-C-33.0-1.0-x86_64.AppImage`), in the default install dir (`frama-c-33.0-1.0`), and in build-info (`BUNDLE_VERSION`, plus `BUNDLE_COMMIT` = the repo commit, `-dirty` if modified). `--fcai-version` prints it.
   - The v33.0-1.0 release says `BUNDLE_COMMIT=unknown`: in the container, git refuses `/fcai-src` (owned by the host user, read-only: "dubious ownership"). `build-in-container.sh` now computes it on the host and passes `FCAI_COMMIT`. Bump `BUNDLE_REV` for bundle-only changes; a new Frama-C version restarts it at 1.0. Git tag: `v33.0-1.0`.
+- **ZeroMQ and Apron (owner, 2026-10-10: "we'll add ZeroMQ and Apron"; bundle 33.0-1.1).** Facts from the 33.0 sources:
+  - **ZeroMQ:** `src/plugins/server/dune` has `(select server_zmq.ml from (zmq -> server_zmq.ok.ml) (-> server_zmq.ko.ml))`; the `.ko` file is empty, which is why 1.0 linked a `Server__Server_zmq` with no options.
+    - With zmq, the group "Protocol ZeroMQ" adds `-server-zmq <url>` and `-server-gui <cmd>`.
+    - The server binds a REP socket (`ipc://` creates a UNIX socket file) and keeps running after the command line, until `SHUTDOWN`.
+    - Protocol (`server_zmq.md`): multi-part messages `GET id request json` → `DATA id json`, or `NONE` while busy (then `POLL`).
+  - **Apron:** `src/plugins/eva/src/dune` has an optional library `frama-c-eva.apron.core`, an optional dune-site plug-in **`eva.apron`**, and `fc_internal_apron` (`apron.apron apron.boxMPQ apron.octMPQ apron.polkaMPQ`).
+    - The domains are `apron-octagon`, `apron-box`, `apron-polka-loose`, `apron-polka-strict` and `apron-polka-equality` (real help text in `src/plugins/eva/tests/utils/help-messages.t/run.t`, served by the mock).
+    - `gen_static_exe.py` takes every `requires` of every plug-in META, so `eva.apron` gets linked whether dune writes it as its own META or as a sub-package (mock unit check).
+    - opam's `apron` (v0.9.15, `--no-ppl` without `conf-ppl`) installs its C libraries in `<switch>/share/apron/lib`, hence `bundle_libs --search`.
+  - **Tests:**
+    - `<mode>-apron`: Eva on `eva.c` with each `apron-*` domain listed by `-eva-domains help` must find the alarm.
+    - `zmq-server`: `-server-zmq` in `-server-h`; `frama-c -server-zmq ipc://…` must create the socket; then `tests/zmq_client.py` (bundled Python, the bundled `libzmq.so.5` through ctypes, no pyzmq) sends `GET kernel.services.getConfig` and needs `DATA` with a `version`, then sends `SHUTDOWN`.
+    - Both run only if build-info's `OPTIONAL_DEPS` lists them.
+  - **Not yet seen on a real build:** opam resolving `zmq` (6.0.0, dune ≥ 3.18) and `apron` on focal, whether apron's libraries end up shared (`--search`) or static, and libzmq's bundled dependencies (the mock, with the workspace's libzmq 4.3.5, bundled libnorm, libbsd and krb5).
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants
@@ -195,7 +210,9 @@ Do not "fix" these back. Each one was observed in a real log.
 Flambda, strip and asar in the mock:
 - `ocamlopt` (`dev/mock/ocamlopt`) answers `-config` with `flambda: true`, and writes one inlining report per round: 3 when `OCAMLPARAM` has `O3=1`, else 1. It is exercised by the opt-in scenario `OCAML_FLAMBDA=1 STOP_AFTER=o3-probe`.
 - `stamps/ocaml-conf` is pre-written with the default (`flambda=0 o3=0`), and the main build checks that build-info says plain `4.14.2` and that no probe ran.
-- `why3cpulimit` is a `-g` ELF that must come out without `.symtab`/`.debug_*` but with its RPATH.
+- `why3cpulimit` is a `-g` ELF that must come out without `.symtab`/`.debug_*` but with its RPATH. It also links `libfcaiapron.so` from `<R>/opam/fcai/share/apron/lib` (no RUNPATH), so `bundle_libs --search` must find it.
+- ZeroMQ: `frama-c -server-zmq URL` execs `$WHY3LIB/fcai-mock-zmq-server` (`dev/mock/mock-zmq-server.c`), a real libzmq REP server speaking Frama-C's protocol, linked against the workspace's `libzmq.so.5` by path (no headers), so libzmq and its dependencies get bundled. `-server-h` and `-eva-domains help` come from `dev/mock/help/{server,eva-domains}.txt`, and invalid domains are refused as Frama-C does. The mock `ocamlfind` answers `query zmq|apron`, and `stamps/optdeps-conf` is pre-written.
+- A scenario runs `STOP_AFTER=optdeps-conf` on stamps without `optdeps-conf` (an owner volume from 1.0): `framac-build`/`framac-static` and `_build` must go, `opam-deps` must stay, and `OPTIONAL_DEPS="zmq bogus"` must be refused.
 - Ivette's `app.asar` comes from `make_asar.py` (`.map` files, integrity hashes) and must come out without maps and verified.
 - A final scenario runs `build.sh STOP_AFTER=ocaml-conf` on a copy of the stamps whose `ocaml-conf` says flambda `-O3` (the owner's volume after the failed build): the switch/deps/Frama-C/why3 stamps and `_build` must go, `framac-source` must stay, and an unchanged configuration must keep everything.
 
@@ -214,23 +231,17 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
    - `PLUGINS=` in build-info was garbled (first word of each help line, including continuation lines); it now lists the full names, comma-separated.
 2. **Release build-20261009-1959, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`), the same as 1818. The delivery tar is 296.3 → 254.9 MB (−41 MB, −14%) from strip and the removed `.map` files. OCaml is plain 4.14.2, `STRIPPED=yes`. The WP counts are identical (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4), and so are the Eva alarm, Ivette under Xvfb, strace and completion.
 3. **Release v33.0-1.0 (2026-10-09), published by the owner, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`). The tar is 254.9 MB, `--fcai-version` gives `33.0-1.0`, and `install.sh --dir/--bin` installs all 9 commands (`frama-c -version` and `why3 --version` work) without touching `$HOME`. One flaw: `BUNDLE_COMMIT=unknown` (fixed for the next build, see Versioning). Notes: `RELEASE-NOTES.md`.
-4. **TODO, next release (owner, 2026-10-09): ZeroMQ support** is missing (reported by another session).
-   - What is known: `frama-c.33.0`'s opam file lists `zmq` among its `depopts`. The Server plug-in's ZeroMQ backend (`-server-zmq <url>`) is only built when the OCaml `zmq` package is installed, and that is not the case today (`--deps-only` skips depopts).
-   - Likely work:
-     - `opam install zmq` in `opam-deps`, before Frama-C; it needs `libzmq3-dev` from apt in the container;
-     - check that the dune build then compiles the zmq part of the server;
-     - `bundle_libs` should pick up `libzmq.so.5` and its dependencies (libsodium, libpgm, libnorm, libgssapi…), to be checked with `ldd`;
-     - the glibc check covers them.
-   - Tests: `-server-zmq` appears in `-server-h`, and a round-trip test (start `frama-c -server-zmq ipc://…`, send one request with a tiny client). The client could be the bundled Python, but that needs pyzmq, so a C client or a frama-c-side self-test is probably simpler.
-   - Mock: a fake libzmq dependency, and the help line.
-5. **Optional dependencies audit (2026-10-10, opam-repository + the real v33.0-1.0 bundle):**
-   - `frama-c.33.0` depopts are `apron` and `zmq`, and both are missing from 1.0:
-     - **apron:** `-eva-domains help` lists no `apron-*` domain, and `-eva-domains apron-octagon` → "invalid domain" (the binary has the `-eva-apron-oct`/`-eva-apron-box` strings, but the domains aren't built). Eva's native `octagon` domain is there. Adding it means opam `apron` (+ `mlgmpidl`, system libgmp/libmpfr, possibly PPL), and bundling its shared libraries.
-     - **zmq:** `-server-h` has only the `-server-socket*` options; `Server__Server_zmq` is linked as a stub (see item 4).
-   - `conf-graphviz {post}`: `dot` is not bundled. Frama-C writes `.dot` files (`-cg`, `-pdg-dot`, Aorai, …) for the user to render. Ivette's graphs (Dive, callgraph) use the wasm graphviz inside `app.asar`. The string `%s -Txdot %s > %s` belongs to ocamlgraph's dgraph viewer (the old GTK GUI).
-   - `frama-c-metacsl.0.11` depopts: `why3` (present) and `conf-swi-prolog` (absent). No MetAcsl option mentions Prolog in `-meta-h`; what needs it is unverified.
-   - `why3.1.8.2` depopts: `camlzip`, `ocamlgraph`, `ppx_deriving` (present through Frama-C's deps), `sexplib`/`ppx_sexp_conv` and `mlmpfr` (likely absent: session serialization extras, and MPFR-based float evaluation). Low impact for WP. `why3-reloc-configure.log` shows what the relocatable why3 found.
-   - `alt-ergo.2.6.2`: no depopts.
+4. **33.0-1.1 (ZeroMQ + Apron, `BUNDLE_REV=1.1`): mock green, real build pending.** The owner's volume rebuilds Frama-C (no `optdeps-conf` yet). Then check:
+   - `logs/optdep-zmq.txt` and `logs/optdep-apron.txt`;
+   - the libraries `bundle_libs` added (libzmq and its deps, `libapron*`, `libpolkaMPQ`, …) and `GLIBC_REQUIRED`;
+   - the tests `zmq-server` and `*-apron`.
+   - The audit of the other optional dependencies (`conf-graphviz`, MetAcsl's `conf-swi-prolog`, Why3's `sexplib`/`mlmpfr`) is below; not requested.
+5. **Optional dependencies audit (2026-10-10):**
+   - `frama-c.33.0` depopts: `apron`, `zmq` (now in `OPTIONAL_DEPS`).
+   - `conf-graphviz {post}`: `dot` not bundled. Frama-C writes `.dot` files (`-cg`, `-pdg-dot`, Aorai) for the user to render; Ivette draws with the wasm graphviz inside `app.asar`.
+   - MetAcsl depopts: `why3` (present) and `conf-swi-prolog` (absent; no `-meta-h` option mentions Prolog).
+   - Why3 depopts: `camlzip`, `ocamlgraph`, `ppx_deriving` (present), `sexplib`/`ppx_sexp_conv`/`mlmpfr` (likely absent, low impact for WP).
+   - `alt-ergo`: none.
 6. **Possible improvements, not requested:**
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);
    - shrinking the AppImage (Ivette is ~520 MB unpacked);
