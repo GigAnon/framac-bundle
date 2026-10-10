@@ -223,7 +223,15 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
      - the glibc check covers them.
    - Tests: `-server-zmq` appears in `-server-h`, and a round-trip test (start `frama-c -server-zmq ipc://…`, send one request with a tiny client). The client could be the bundled Python, but that needs pyzmq, so a C client or a frama-c-side self-test is probably simpler.
    - Mock: a fake libzmq dependency, and the help line.
-5. **Possible improvements, not requested:**
+5. **Optional dependencies audit (2026-10-10, opam-repository + the real v33.0-1.0 bundle):**
+   - `frama-c.33.0` depopts are `apron` and `zmq`, and both are missing from 1.0:
+     - **apron:** `-eva-domains help` lists no `apron-*` domain, and `-eva-domains apron-octagon` → "invalid domain" (the binary has the `-eva-apron-oct`/`-eva-apron-box` strings, but the domains aren't built). Eva's native `octagon` domain is there. Adding it means opam `apron` (+ `mlgmpidl`, system libgmp/libmpfr, possibly PPL), and bundling its shared libraries.
+     - **zmq:** `-server-h` has only the `-server-socket*` options; `Server__Server_zmq` is linked as a stub (see item 4).
+   - `conf-graphviz {post}`: `dot` is not bundled. Frama-C writes `.dot` files (`-cg`, `-pdg-dot`, Aorai, …) for the user to render. Ivette's graphs (Dive, callgraph) use the wasm graphviz inside `app.asar`. The string `%s -Txdot %s > %s` belongs to ocamlgraph's dgraph viewer (the old GTK GUI).
+   - `frama-c-metacsl.0.11` depopts: `why3` (present) and `conf-swi-prolog` (absent). No MetAcsl option mentions Prolog in `-meta-h`; what needs it is unverified.
+   - `why3.1.8.2` depopts: `camlzip`, `ocamlgraph`, `ppx_deriving` (present through Frama-C's deps), `sexplib`/`ppx_sexp_conv` and `mlmpfr` (likely absent: session serialization extras, and MPFR-based float evaluation). Low impact for WP. `why3-reloc-configure.log` shows what the relocatable why3 found.
+   - `alt-ergo.2.6.2`: no depopts.
+6. **Possible improvements, not requested:**
    - SWI-Prolog for MetAcsl deduction (`conf-swi-prolog`);
    - shrinking the AppImage (Ivette is ~520 MB unpacked);
    - quoting the libc path upstream.
