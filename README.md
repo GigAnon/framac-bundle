@@ -1,11 +1,13 @@
 # Relocatable, offline Frama-C bundle (AppImage)
 
+**Current version: 33.0-1.1** (Frama-C 33.0, bundle revision 1.1). Ready-made bundles are on the [releases page](https://github.com/GigAnon/framac-bundle/releases); `RELEASE-NOTES.md` lists what each one contains and what changed.
+
 These scripts build a single AppImage containing:
 
 * **Frama-C 33.0**, one executable with every plug-in statically linked, including MetAcsl (E-ACSL excluded);
 * **`frama-c-script`**, with its Python helpers and a bundled **Python 3.12 + PyYAML**;
 * **Ivette**, the Electron GUI, built from the Frama-C sources;
-* the optional parts of Frama-C that need extra libraries: Eva's **Apron domains** and the Server's **ZeroMQ** protocol (`-server-zmq`);
+* the optional parts of Frama-C that need extra libraries (new in 1.1): Eva's **Apron domains** (`apron-octagon`, `apron-box`, `apron-polka-loose/strict/equality`) and the Server's **ZeroMQ** protocol (`-server-zmq`, `-server-gui`);
 * **Why3 1.8.2**, as a library inside Frama-C and as the `why3` command, with the provers **Z3 4.13.0, CVC4 1.8, cvc5 1.2.1 and Alt-Ergo 2.6.2**;
 * **a C preprocessor** (the `gcc` driver and `cc1`);
 * **bash completion** for `frama-c`, `ivette`, `frama-c-script` and `why3`, generated from the bundled Frama-C's own help.
@@ -25,11 +27,12 @@ The AppImage:
 ./build.sh
 ```
 
-Output: `dist/frama-c-33.0-1.0-offline-x86_64.tar`, plus `dist/logs/` (build log, self-test report, diagnostics). Logs are cleared at the start of each build; `KEEP_LOGS=1` keeps them.
+Output: `dist/frama-c-33.0-1.1-offline-x86_64.tar` (roughly 255 MB), plus `dist/logs/` (build log, self-test report, diagnostics). Logs are cleared at the start of each build; `KEEP_LOGS=1` keeps them.
 
 * **First run.** About 30–60 minutes: OCaml, the opam dependencies and Frama-C are all built from source.
 * **flambda.** `OCAML_FLAMBDA=1` builds with an OCaml flambda compiler and `-O3`. It is off by default: with `-O3`, compiling Frama-C 33 ran for hours and then crashed the compiler (stack overflow, out of memory). Changing the compiler configuration rebuilds everything OCaml automatically.
 * **Size.** The executables built here are stripped (`STRIP=0` keeps the symbols), and Ivette's JavaScript source maps (~64 MB) are removed from its `app.asar`, with every remaining file verified (`IVETTE_PRUNE_MAPS=0` keeps them).
+* **Versioning.** The bundle version is `<Frama-C version>-<bundle revision>`: `BUNDLE_REV` (default `1.1`) goes up for bundle-only changes and restarts at 1.0 with a new Frama-C. It is in the file names, the default install directory, `--fcai-version` and `build-info.txt`, which also records the git commit the bundle was built from.
 * **Later runs.** Incremental, because opam and the sources are kept in the `fcai-build-<image>` docker volume. `FORCE=framac-static ./build-in-container.sh` redoes one step; `FORCE=all` redoes all of them.
 * **Downloads.** Everything is pinned:
   * opam, the provers, appimagetool, the AppImage runtime, patchelf and CPython (python-build-standalone): by SHA256;
@@ -44,12 +47,15 @@ Output: `dist/frama-c-33.0-1.0-offline-x86_64.tar`, plus `dist/logs/` (build log
 ## Install and test (offline machine)
 
 ```sh
-tar xf frama-c-33.0-1.0-offline-x86_64.tar && cd frama-c-33.0-1.0-offline-x86_64
+tar xf frama-c-33.0-1.1-offline-x86_64.tar && cd frama-c-33.0-1.1-offline-x86_64
+sha256sum -c SHA256SUMS
 ./run-tests.sh          # -> fcai-test-report-<host>-<date>.txt
-./install.sh            # ~/.local/opt + symlinks in ~/.local/bin
+./install.sh            # ~/.local/opt/frama-c-33.0-1.1 + symlinks in ~/.local/bin
 ```
 
 The installed commands are `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, `cvc4`, `cvc5` and `alt-ergo`. As root, `install.sh` defaults to `/opt` and `/usr/local/bin`. It writes nothing into any home directory. Each user who wants bash completion runs `setup_completion.sh` (installed next to `frama-c`); root can enable it for everyone with `setup_completion.sh --system`. Without installing, `source <(./Frama-C-*.AppImage --fcai-completion)` loads it. `README.md` inside the archive has the details: `--dir`, `--bin`, `--extract` for machines without FUSE, and `--uninstall`.
+
+**ZeroMQ server.** `frama-c file.c -eva -then -server-zmq ipc:///tmp/fc.io` keeps the analysed project available to ZeroMQ clients (a `REQ` socket, Frama-C's server protocol) until one sends `SHUTDOWN`. `tests/zmq_client.py` in the archive is a minimal client: standard-library Python plus the bundled `libzmq.so.5`, no pyzmq needed.
 
 ## How path independence is achieved (and checked)
 
@@ -62,14 +68,14 @@ The installed commands are `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, 
 | Prover config | `why3.conf` stores absolute prover paths | At build time, `why3 config detect` is run against the bundled provers and saved as a template. `AppRun` fills it in for the current location of the bundle and points `WHY3CONFIG` at it, unless the caller already set `WHY3CONFIG` (or `FCAI_WHY3CONFIG`). |
 | C preprocessor | Frama-C runs `gcc -E` from `PATH` | The `gcc` driver (as `gcc-real`) and `cc1` are bundled with the same relative layout, so gcc finds `cc1` relative to itself. `gcc` is a wrapper that always adds `-nostdinc`, so the host's `/usr/include` is never searched. |
 | Ivette → frama-c | Ivette starts `frama-c` from `PATH` | `usr/lib/fcai-wrappers/frama-c` comes first on `PATH` and runs `AppRun frama-c`. `AppRun` removes `ARGV0` after using it, so this inner call doesn't start Ivette again. |
-| Shared libraries | libgmp and libstdc++ (Frama-C, Z3, Alt-Ergo), libmpc, libmpfr and libisl (cc1) | They are copied **unmodified** into `usr/lib`. Executables get a relative `DT_RPATH` (`$ORIGIN/...`), which glibc also uses for their libraries' dependencies. Adding a RUNPATH to old libraries makes patchelf write misaligned segments that glibc 2.31 rejects, so every patched file is checked for alignment, and `ldd` errors fail the build. Only glibc comes from the host. |
+| Shared libraries | libgmp and libstdc++ (Frama-C, Z3, Alt-Ergo), libzmq and its dependencies, Apron's libraries (which opam leaves in `<switch>/share/apron/lib`), libmpc, libmpfr and libisl (cc1) | They are copied **unmodified** into `usr/lib`. Executables get a relative `DT_RPATH` (`$ORIGIN/...`), which glibc also uses for their libraries' dependencies. Adding a RUNPATH to old libraries makes patchelf write misaligned segments that glibc 2.31 rejects, so every patched file is checked for alignment, and `ldd` errors fail the build. Only glibc comes from the host. |
 | glibc | binaries need the build image's glibc | The default build image is `ubuntu:20.04`, a `GLIBC_MAX` check runs at build time, and the bundle refuses clearly on older hosts (`FCAI_SKIP_GLIBC_CHECK=1` overrides). |
 
 `run-tests.sh` checks all of this:
 
 * **Prerequisites:** the host glibc.
 * **WP:** each prover on its own (each must prove something Qed can't), all provers together (every goal proved), and a negative proof that must fail.
-* **Optional parts:** Eva with each Apron domain, and a real request to `frama-c -server-zmq` (the bundled Python calling the bundled libzmq).
+* **Optional parts:** Eva with each Apron domain listed by `-eva-domains help` (each must find the expected alarm), and a real `kernel.services.getConfig` request to `frama-c -server-zmq` (the bundled Python calling the bundled libzmq).
 * **Other tools:** Eva with the libc headers, `frama-c-script` (`find-fun`, plus `make-machdep --help`, which needs PyYAML), and the bash completion.
 * **Locations:** the bundle mounted, extracted, copied, renamed, from a path containing spaces, and with the original deleted.
 * **Isolation:** a concurrent job, a job without network access (`unshare -rn`), and an `strace` of every file touched, which fails if anything under the build paths, or a host compiler, prover or why3/frama-c install, is used.
@@ -90,16 +96,24 @@ delivery/install.sh       offline installer
 delivery/run-tests.sh     offline acceptance tests
 delivery/setup_completion.sh  per-user (or --system) bash completion setup
 delivery/README-offline.md  README shipped in the archive
-delivery/tests/*.c        WP / Eva samples
+delivery/tests/            WP / Eva / Why3 samples, and zmq_client.py (minimal ZeroMQ client)
 dev/mock/                 mocked Frama-C build for development (see below)
+RELEASE-NOTES.md          contents, requirements and changes of the current release
 CLAUDE.md                 design notes, real-build facts and workflow, for maintainers/agents
 ```
 
 ## Developing without a full build
 
-`dev/mock/run-mock.sh [WORKDIR]` fakes only the network-bound parts: opam, the Frama-C build, the Why3 CLI, Alt-Ergo and Ivette. It uses the real 33.0 `frama-c-script`. It then runs the real `build.sh` from the prover downloads onwards, followed by `run-tests.sh` on the delivered AppImage. Finally it runs failure scenarios:
+`dev/mock/run-mock.sh [WORKDIR]` fakes only the parts that take an hour or need opam: opam, the Frama-C build, the Why3 CLI, Alt-Ergo and Ivette. Where it can, it uses the real thing:
+* the real 33.0 `frama-c-script`, and real help texts;
+* a real libzmq REP server speaking Frama-C's protocol, for `-server-zmq`;
+* a library in opam's `share/apron/lib`, as opam's Apron installs it.
+
+It then runs the real `build.sh` from the prover downloads onwards, followed by `run-tests.sh` on the delivered AppImage. Finally it runs failure and upgrade scenarios:
 * a host glibc that is too old;
 * a build with too low a `GLIBC_MAX`;
-* a host python3 that is too old.
+* a host python3 that is too old;
+* a change of compiler configuration;
+* adding optional dependencies to an existing build volume.
 
-It takes a few minutes and needs GitHub access, gcc and python3. Run it before handing changes over for a real build.
+It takes a few minutes and needs GitHub access, gcc, python3 and the system `libzmq.so.5` (Debian/Ubuntu package `libzmq5`). Run it before handing changes over for a real build.
