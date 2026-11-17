@@ -233,7 +233,8 @@ Do not "fix" these back. Each one was observed in a real log.
     - Completion: 1177 options. Ivette launches and runs the bundled frama-c (`-no-autoload-plugins -server-socket …`).
     - **Cosmetic bug found:** on a fresh volume, `optdeps-conf` does not exist. `warn "...('$(cat "$STAMPS/optdeps-conf" 2>/dev/null)' ..."` then fired the ERR trap inside the `$(...)` subshell: its `die` printed `ERROR: failed at line 313 …` into the warning text and exited only the subshell, and the build went on. Fixed with `old_optdeps=$(cat … || true)`; the mock's optdeps scenario now requires `('' -> 'zmq apron')` and no `ERROR: failed` in its log.
     - Rule: never put a command that can fail inside `$(...)` without `|| true`/`|| echo …` (set -E propagates the ERR trap into substitutions).
-  - **Not yet tested:** a run on the target (FUSE AppImage mode, `unshare` offline, RHEL 9.8), and Ivette with a real display on 34.
+  - **Release v34.0-beta-1.0-rc1 (2026-11-17, ed050b9), run by the agent** (Ubuntu 24.04, glibc 2.39): **122 PASS, 0 FAIL, 0 WARN**; only the `*-wp-detect` SKIPs. FUSE AppImage mode, extracted mode, `offline` (`unshare -rn`), `reloc-appimage`, strace, Ivette (Xvfb), Apron, ZeroMQ and `list-functions` all PASS. `install.sh --dir/--bin` installs the 9 commands (`--fcai-version` = `34.0-beta-1.0`) and writes nothing to `$HOME`.
+  - **Not yet tested:** RHEL 9.8, and Ivette with a real display on 34.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants
@@ -296,7 +297,7 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 3. **Release v33.0-1.0 (2026-10-09), published by the owner, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`). The tar is 254.9 MB, `--fcai-version` gives `33.0-1.0`, and `install.sh --dir/--bin` installs all 9 commands (`frama-c -version` and `why3 --version` work) without touching `$HOME`. One flaw: `BUNDLE_COMMIT=unknown` (fixed for the next build, see Versioning). Notes: `RELEASE-NOTES.md`.
 4. **33.0-1.1 (ZeroMQ + Apron)** was released on 2026-10-10 (v33.0-1.1). rc1: a good bundle with a broken test client (see "ZeroMQ and Apron").
 5. **Frama-C 34.0~beta → bundle 34.0-beta-1.0: first real build green (2026-11-17), self-test 0 FAIL / 0 WARN** (see the facts above).
-   - Next: the owner publishes a pre-release; the agent runs it (FUSE, offline, extracted mode); then RHEL 9.8 and Ivette on a real display.
+   - rc1 published and run by the agent: 122 PASS, 0 FAIL, 0 WARN. Next: RHEL 9.8 and Ivette on a real display (owner), then the final `v34.0-beta-1.0`.
    - Also next: 33.0-1.2 (`list-functions` fix only; the owner's 33 volume patches and recompiles one module).
 6. **Optional dependencies audit (2026-10-10):**
    - `frama-c.33.0` depopts: `apron`, `zmq` (now in `OPTIONAL_DEPS`).

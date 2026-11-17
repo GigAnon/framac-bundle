@@ -1,4 +1,4 @@
-# Frama-C 34.0 beta offline bundle — `34.0-beta-1.0` (draft)
+# Frama-C 34.0 beta offline bundle — `34.0-beta-1.0`
 
 A **beta**: Frama-C 34.0~beta "Selenium" (released 2026-11-13) with MetAcsl 0.12-beta, packaged the same way as the 33.0 bundles (one self-contained AppImage for Linux x86_64, no network, no root, any directory). Use 33.0 for production work.
 
@@ -24,6 +24,8 @@ sha256sum -c SHA256SUMS
 | Where | Result |
 |---|---|
 | Build container (Ubuntu 20.04, glibc 2.31), self-test | 0 FAIL, 0 WARN. WP on the sample file: Z3 50/50, Alt-Ergo 50/50, CVC4/cvc5 44/50, all provers together 50/50. Eva with each Apron domain, the ZeroMQ server, `frama-c-script` (including `list-functions`), Why3, Ivette under Xvfb, relocation and bash completion all pass. |
+
+| Ubuntu 24.04 (glibc 2.39), the published rc1 | 122 PASS, 0 FAIL, 0 WARN, including the AppImage run through FUSE, the extracted directory, a run with no network, relocation, the strace check and `install.sh`. |
 
 The minimum glibc on the target is 2.29 (Ivette 2.25), the same as the 33.0 bundles.
 
