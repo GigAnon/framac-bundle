@@ -11,9 +11,12 @@
 #                               (20.04 -> glibc 2.31: RHEL 9 (2.34), Debian 11+,
 #                               Ubuntu 20.04+; 22.04 -> 2.35 is too new for
 #                               RHEL 9).  build.sh enforces GLIBC_MAX (2.34).
-#   FCAI_VOLUME=fcai-build      named volume keeping the opam root / sources
-#                               between runs (incremental rebuilds); remove it
-#                               with: docker volume rm fcai-build
+#   FCAI_VOLUME=...             named volume keeping the opam root / sources
+#                               between runs (incremental rebuilds). Default:
+#                               fcai-build-<image> for Frama-C 33.0 (the name
+#                               it always had), fcai-build-<image>-fc<version>
+#                               for any other version, so each version keeps
+#                               its own OCaml switch and build (34 needs OCaml 5)
 #   IVETTE_PREBUILT=FILE|DIR    use this Ivette (AppImage / unpacked Electron
 #                               app) instead of building it from source
 #   Any build.sh setting (FRAMAC_VERSION, ALTERGO_PKG, WITH_CVC5, WITH_IVETTE,
@@ -23,7 +26,13 @@ HERE=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 ENGINE=${ENGINE:-$(command -v docker || command -v podman || true)}
 [ -n "$ENGINE" ] || { echo "neither docker nor podman found" >&2; exit 1; }
 BASE_IMAGE=${BASE_IMAGE:-ubuntu:20.04}
-VOLUME=${FCAI_VOLUME:-fcai-build-${BASE_IMAGE//[:\/]/-}}
+VOLUME=fcai-build-${BASE_IMAGE//[:\/]/-}
+case "${FRAMAC_VERSION:-33.0}" in
+    33.0) ;;
+    *) v=${FRAMAC_VERSION//\~/-}; VOLUME="$VOLUME-fc${v//[^A-Za-z0-9.-]/-}" ;;
+esac
+VOLUME=${FCAI_VOLUME:-$VOLUME}
+echo "build volume: $VOLUME"
 mkdir -p "$HERE/dist"
 
 PASS=()

@@ -45,6 +45,14 @@ echo "ocaml=4.14.2 flambda=0 o3=0" > "$R/stamps/ocaml-conf"
 # itself still runs: install + findlib check through the mock ocamlfind)
 echo "zmq apron" > "$R/stamps/optdeps-conf"
 echo "LGPL (mock)" > "$R/src/frama-c-33.0/LICENSE"
+echo "33.0" > "$R/stamps/framac-conf"
+# the tree as the first real build left it: list_functions.ml already patched
+# (lib/patch_sources.py), so build.sh links frama-c.analysis-scripts and
+# patches frama-c-script list-functions without forcing a Frama-C rebuild
+mkdir -p "$R/src/frama-c-33.0/share/analysis-scripts"
+cp "$MOCKSRC/list_functions.ml" "$R/src/frama-c-33.0/share/analysis-scripts/"
+python3 -I -B "$REPO/lib/patch_sources.py" "$R/src/frama-c-33.0" | grep -q '^patched: 1$' \
+    || { echo "MOCK FAIL: patch_sources.py did not patch the list_functions.ml fixture"; exit 1; }
 cat > "$R/bin/opam" <<EOF
 #!/bin/bash
 # mock opam: 'opam exec ... -- CMD' runs CMD with the mock tools first in PATH
@@ -154,6 +162,26 @@ for l in frama-c-eva.core frama-c-eva.apron.core frama-c-eva.numerors.core frama
     case " $libs " in *" $l "*) ;; *) echo "MOCK FAIL: gen_static_exe misses $l (got: $libs)"; exit 1;; esac
 done
 echo "ok    gen_static_exe: plug-in sub-packages (eva.apron) are linked"
+# --extra-lib (frama-c.analysis-scripts for frama-c-script list-functions)
+B="$GS/src/boot"; mkdir -p "$B"
+printf '(executable\n (name entry_point)\n (public_name frama-c)\n (modules entry_point)\n (libraries frama_c_kernel))\n(include_subdirs no)\n' > "$B/dune"
+echo 'let () = Frama_c_kernel.Boot.boot ()' > "$B/entry_point.ml"
+(cd "$GS" && python3 -I -B "$REPO/lib/gen_static_exe.py" --src . --extra-lib frama-c.analysis-scripts) > "$GS/out.txt" 2>&1 \
+    || { echo "MOCK FAIL: gen_static_exe on a Frama-C 34 style stanza ($GS/out.txt)"; exit 1; }
+grep -q 'frama-c-wp.core frama-c.analysis-scripts' "$B/fcai_static/dune" && [ -f "$B/fcai_static/entry_point.ml" ] \
+    || { echo "MOCK FAIL: gen_static_exe: Frama-C 34 stanza ((include_subdirs no), entry_point) or --extra-lib ($GS/out.txt)"; exit 1; }
+echo "ok    gen_static_exe: Frama-C 34 stanza (src/boot, entry_point, include_subdirs no) and --extra-lib"
+# patch_sources.py: idempotent, and refuses a list_functions.ml it does not recognise
+PSX="$W/patchsrc"; rm -rf "$PSX"; mkdir -p "$PSX/share/analysis-scripts"
+cp "$MOCKSRC/list_functions.ml" "$PSX/share/analysis-scripts/"
+python3 -I -B "$REPO/lib/patch_sources.py" "$PSX" | grep -q '^patched: 1$' \
+    && python3 -I -B "$REPO/lib/patch_sources.py" "$PSX" | grep -q '^patched: 0$' \
+    && grep -q 'if Enabled.get () then run ()' "$PSX/share/analysis-scripts/list_functions.ml" \
+    || { echo "MOCK FAIL: patch_sources.py not idempotent or wrong patch"; exit 1; }
+sed '/Boot.Main.extend/d' "$MOCKSRC/list_functions.ml" > "$PSX/share/analysis-scripts/list_functions.ml"
+python3 -I -B "$REPO/lib/patch_sources.py" "$PSX" >/dev/null 2>&1 \
+    && { echo "MOCK FAIL: patch_sources.py accepted a list_functions.ml without its entry point"; exit 1; }
+echo "ok    patch_sources.py: list_functions.ml guarded by -list-functions, idempotent, strict"
 
 # --- the real build.sh, from step 5 on ---------------------------------------
 rm -rf "$W/dist" "${XDG_RUNTIME_DIR:-/tmp}/fcai-$(id -u)" "/tmp/fcai-$(id -u)"
@@ -199,12 +227,12 @@ grep -q '^OCAML_VERSION=4.14.2$' "$R/AppDir/usr/share/fcai/build-info" \
     || mfail "build-info: OCAML_VERSION is not plain '4.14.2' (flambda is off by default)"
 [ ! -e "$R/logs/o3-probe.txt" ] || mfail "-O3 probe ran although flambda is off"
 echo "ok    default compiler: plain 4.14.2, no OCAMLPARAM (recorded in build-info)"
-[ "$("$R/AppDir/AppRun" --fcai-version)" = 33.0-1.1 ] || mfail "--fcai-version is not 33.0-1.1"
-ls "$W/dist"/frama-c-33.0-1.1-offline-x86_64.tar >/dev/null 2>&1 \
-    && tar -tf "$W/dist"/frama-c-33.0-1.1-offline-x86_64.tar | grep -q 'Frama-C-33.0-1.1-x86_64.AppImage$' \
-    || mfail "delivery names do not carry the bundle version 33.0-1.1"
+[ "$("$R/AppDir/AppRun" --fcai-version)" = 33.0-1.2 ] || mfail "--fcai-version is not 33.0-1.2"
+ls "$W/dist"/frama-c-33.0-1.2-offline-x86_64.tar >/dev/null 2>&1 \
+    && tar -tf "$W/dist"/frama-c-33.0-1.2-offline-x86_64.tar | grep -q 'Frama-C-33.0-1.2-x86_64.AppImage$' \
+    || mfail "delivery names do not carry the bundle version 33.0-1.2"
 grep -qE '^BUNDLE_COMMIT=[0-9a-f]{7,}(-dirty)?$' "$R/AppDir/usr/share/fcai/build-info" || mfail "build-info: BUNDLE_COMMIT is not a commit"
-echo "ok    bundle version 33.0-1.1: --fcai-version, tar and AppImage names, BUNDLE_COMMIT"
+echo "ok    bundle version 33.0-1.2: --fcai-version, tar and AppImage names, BUNDLE_COMMIT"
 
 # --- the delivery archive, as on the offline target ----------------------------
 T="$W/target"; rm -rf "$T"; mkdir -p "$T/home"
@@ -350,4 +378,41 @@ rc=0; (cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" OPTIONAL_DEPS="zmq bogus" ST
 [ $rc != 0 ] && grep -q "OPTIONAL_DEPS: unknown 'bogus'" "$X/out2.txt" \
     || { echo "MOCK FAIL: an unknown optional dependency was accepted ($X/out2.txt)"; exit 1; }
 echo "ok    optional dependencies: added to an old volume -> Frama-C rebuilt (deps kept); unknown name refused"
+
+# --- Frama-C 34.0~beta profile: version, OCaml, vendoring from a URL ---------
+# Real 34.0-beta facts: plug-ins live in the top-level plugins/, MetAcsl
+# 0.12-beta is not in opam (an archive pinned by sha256), OCaml >= 5.2.
+echo "==> Frama-C 34.0~beta profile"
+X="$W/fc34"; rm -rf "$X"; mkdir -p "$X/bin" "$X/src/frama-c-34.0~beta/plugins" "$X/arch/meta-0.12-beta"
+cp -a "$R/stamps" "$X/stamps"; cp "$R/bin/opam" "$X/bin/opam"
+echo "ocaml=5.5.0 flambda=0 o3=0" > "$X/stamps/ocaml-conf"; echo "34.0~beta" > "$X/stamps/framac-conf"
+echo '(lang dune 3.0)' > "$X/arch/meta-0.12-beta/dune-project"
+tar -czf "$X/meta.tar.gz" -C "$X/arch" meta-0.12-beta
+msum=$(sha256sum "$X/meta.tar.gz" | cut -d' ' -f1)
+(cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" FRAMAC_VERSION='34.0~beta' STOP_AFTER=vendor \
+    EXTRA_PLUGINS="frama-c-metacsl.0.12~beta=file://$X/meta.tar.gz#sha256=$msum" bash "$REPO/build.sh") > "$X/out.txt" 2>&1 \
+    || { echo "MOCK FAIL: 34.0~beta vendoring ($X/out.txt)"; exit 1; }
+V="$X/src/frama-c-34.0~beta/plugins/fcai-extra-frama-c-metacsl"
+[ -f "$V/dune-project" ] && [ "$(cat "$V/.fcai-frama-c-metacsl.0.12~beta")" = "file://$X/meta.tar.gz#sha256=$msum" ] \
+    && grep -q 'bundle 34.0-beta-1.0 build' "$X/out.txt" && grep -q 'vendor frama-c-metacsl.0.12~beta into the Frama-C tree (plugins)' "$X/out.txt" \
+    && [ ! -e "$X/stamps/framac-build" ] \
+    || { echo "MOCK FAIL: 34.0~beta: version 34.0-beta-1.0, vendoring into plugins/, marker, rebuild ($X/out.txt)"; exit 1; }
+# a wrong checksum must stop the build
+rm -rf "$V"; rc=0
+(cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" FRAMAC_VERSION='34.0~beta' STOP_AFTER=vendor \
+    EXTRA_PLUGINS="frama-c-metacsl.0.12~beta=file://$X/meta.tar.gz#sha256=$(printf '0%.0s' $(seq 64))" bash "$REPO/build.sh") > "$X/out2.txt" 2>&1 || rc=$?
+[ $rc != 0 ] && grep -q 'checksum mismatch' "$X/out2.txt" || { echo "MOCK FAIL: a wrong vendoring checksum was accepted ($X/out2.txt)"; exit 1; }
+# the 34 profile's own defaults: OCaml 5.5.0 and MetAcsl from git.frama-c.com
+grep -A3 '^    34.0~beta)' "$REPO/build.sh" | grep -q '_ocaml=5.5.0' \
+    && grep -A3 '^    34.0~beta)' "$REPO/build.sh" | grep -q 'meta-0.12-beta.tar.gz#sha256=7e8d9980' \
+    || { echo "MOCK FAIL: the 34.0~beta profile lost its OCaml/MetAcsl defaults"; exit 1; }
+# switching an existing 33.0 volume to 34: deps, sources, Frama-C, why3 and the switch redone
+Y="$W/fcswitch"; rm -rf "$Y"; mkdir -p "$Y/bin"; cp -a "$R/stamps" "$Y/stamps"; cp "$R/bin/opam" "$Y/bin/opam"; rm -f "$Y/stamps/framac-conf"
+(cd "$W" && BUILD_ROOT="$Y" OUT_DIR="$Y/dist" FRAMAC_VERSION='34.0~beta' STOP_AFTER=ocaml-conf bash "$REPO/build.sh") > "$Y/out.txt" 2>&1 \
+    || { echo "MOCK FAIL: STOP_AFTER=ocaml-conf with 34.0~beta ($Y/out.txt)"; exit 1; }
+for st in opam-switch opam-deps framac-source framac-build framac-static; do
+    [ ! -e "$Y/stamps/$st" ] || { echo "MOCK FAIL: stamp $st kept when switching 33.0 -> 34.0~beta ($Y/out.txt)"; exit 1; }
+done
+grep -q 'Frama-C version changed (33.0 -> 34.0~beta)' "$Y/out.txt" || { echo "MOCK FAIL: no version-change message ($Y/out.txt)"; exit 1; }
+echo "ok    Frama-C 34.0~beta: bundle 34.0-beta-1.0, MetAcsl from a pinned archive into plugins/, bad sha refused, 33->34 volume redone"
 

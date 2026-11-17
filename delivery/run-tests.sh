@@ -297,6 +297,15 @@ EOS
         result WARN "$m-script-yaml" "no bundled python and no host python3 >= 3.10 with PyYAML: make-machdep unavailable"
     fi
 
+    # 5c. frama-c-script list-functions: frama-c itself, no python; upstream
+    #     uses -load-module (impossible in this frama-c), the bundle links the
+    #     module in and passes -list-functions (broken in 33.0-1.0 and 1.1)
+    mkdir -p "$WORK/$m-listfun"
+    if (cd "$WORK/$m-listfun" && runl "$m-script-listfun" "$fc" frama-c-script list-functions "$TESTS/eva.c") \
+            && grep -qE '^main: defined at ' "$LOGS/$m-script-listfun.log"; then
+        result PASS "$m-script-listfun" "frama-c-script list-functions lists main"
+    else result FAIL "$m-script-listfun" "frama-c-script list-functions failed (see $m-script-listfun log)"; fi
+
     # 6. Why3 prover detection as seen from WP
     runl "$m-wp-detect" "$fc" frama-c -wp-detect; wd=$?
     if grep -q "is unknown" "$LOGS/$m-wp-detect.log"; then

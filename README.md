@@ -1,6 +1,6 @@
 # Relocatable, offline Frama-C bundle (AppImage)
 
-**Current version: 33.0-1.1** (Frama-C 33.0, bundle revision 1.1). Ready-made bundles are on the [releases page](https://github.com/GigAnon/framac-bundle/releases); `RELEASE-NOTES.md` lists what each one contains and what changed.
+**Current version: 33.0-1.1** (Frama-C 33.0, bundle revision 1.1); next: 33.0-1.2 and **34.0-beta-1.0** (Frama-C 34.0 beta, see below). Ready-made bundles are on the [releases page](https://github.com/GigAnon/framac-bundle/releases); `RELEASE-NOTES.md` lists what each one contains and what changed.
 
 These scripts build a single AppImage containing:
 
@@ -27,12 +27,13 @@ The AppImage:
 ./build.sh
 ```
 
-Output: `dist/frama-c-33.0-1.1-offline-x86_64.tar` (roughly 255 MB), plus `dist/logs/` (build log, self-test report, diagnostics). Logs are cleared at the start of each build; `KEEP_LOGS=1` keeps them.
+Output: `dist/frama-c-<bundle version>-offline-x86_64.tar` (roughly 255 MB), plus `dist/logs/` (build log, self-test report, diagnostics). Logs are cleared at the start of each build; `KEEP_LOGS=1` keeps them.
 
+* **Frama-C version.** `FRAMAC_VERSION` picks a profile: `33.0` (the default; OCaml 4.14.2, MetAcsl 0.11 from opam) or `34.0~beta` (OCaml 5.5.0, which Frama-C 34 requires; MetAcsl 0.12-beta, which is not in opam yet, from its git tag, pinned by sha256). `FRAMAC_VERSION='34.0~beta' ./build-in-container.sh` builds `frama-c-34.0-beta-1.0-offline-x86_64.tar` in a docker volume of its own, so both versions stay buildable.
 * **First run.** About 30–60 minutes: OCaml, the opam dependencies and Frama-C are all built from source.
 * **flambda.** `OCAML_FLAMBDA=1` builds with an OCaml flambda compiler and `-O3`. It is off by default: with `-O3`, compiling Frama-C 33 ran for hours and then crashed the compiler (stack overflow, out of memory). Changing the compiler configuration rebuilds everything OCaml automatically.
 * **Size.** The executables built here are stripped (`STRIP=0` keeps the symbols), and Ivette's JavaScript source maps (~64 MB) are removed from its `app.asar`, with every remaining file verified (`IVETTE_PRUNE_MAPS=0` keeps them).
-* **Versioning.** The bundle version is `<Frama-C version>-<bundle revision>`: `BUNDLE_REV` (default `1.1`) goes up for bundle-only changes and restarts at 1.0 with a new Frama-C. It is in the file names, the default install directory, `--fcai-version` and `build-info.txt`, which also records the git commit the bundle was built from.
+* **Versioning.** The bundle version is `<Frama-C version>-<bundle revision>`, with `~` written `-` (`34.0-beta-1.0`): `BUNDLE_REV` (per profile) goes up for bundle-only changes and restarts at 1.0 with a new Frama-C. It is in the file names, the default install directory, `--fcai-version` and `build-info.txt`, which also records the git commit the bundle was built from.
 * **Later runs.** Incremental, because opam and the sources are kept in the `fcai-build-<image>` docker volume. `FORCE=framac-static ./build-in-container.sh` redoes one step; `FORCE=all` redoes all of them.
 * **Downloads.** Everything is pinned:
   * opam, the provers, appimagetool, the AppImage runtime, patchelf and CPython (python-build-standalone): by SHA256;
@@ -47,10 +48,10 @@ Output: `dist/frama-c-33.0-1.1-offline-x86_64.tar` (roughly 255 MB), plus `dist/
 ## Install and test (offline machine)
 
 ```sh
-tar xf frama-c-33.0-1.1-offline-x86_64.tar && cd frama-c-33.0-1.1-offline-x86_64
+tar xf frama-c-<version>-offline-x86_64.tar && cd frama-c-<version>-offline-x86_64
 sha256sum -c SHA256SUMS
 ./run-tests.sh          # -> fcai-test-report-<host>-<date>.txt
-./install.sh            # ~/.local/opt/frama-c-33.0-1.1 + symlinks in ~/.local/bin
+./install.sh            # ~/.local/opt/frama-c-<version> + symlinks in ~/.local/bin
 ```
 
 The installed commands are `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, `cvc4`, `cvc5` and `alt-ergo`. As root, `install.sh` defaults to `/opt` and `/usr/local/bin`. It writes nothing into any home directory. Each user who wants bash completion runs `setup_completion.sh` (installed next to `frama-c`); root can enable it for everyone with `setup_completion.sh --system`. Without installing, `source <(./Frama-C-*.AppImage --fcai-completion)` loads it. `README.md` inside the archive has the details: `--dir`, `--bin`, `--extract` for machines without FUSE, and `--uninstall`.
@@ -63,7 +64,7 @@ The installed commands are `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, 
 |---|---|---|
 | Frama-C plug-ins | loaded with dynlink through findlib, `OCAMLPATH` and absolute paths | `lib/gen_static_exe.py` generates a second executable stanza in the Frama-C source tree. It links the same libraries as `frama-c`, plus every plug-in library the normal build produced, with `-linkall`. It is run with `-no-autoload-plugins`. |
 | Frama-C `share/` and `lib/` | dune-site paths are fixed at install time, and `dune install --relocatable` bakes in `<exe>/../` + the *absolute* stage path | `AppRun` always passes the bundle-relative dune-site locations through `DUNE_DIR_LOCATIONS`, which dune-site searches first. Parts of Frama-C (the libc `-I` path, `-print-lib-path`) use the baked entry, so a relative symlink `usr/<stage path> → usr` makes that entry valid too. The build checks that every `-print-share-path` entry of a moved copy exists, and parses a C file with `#include`s. |
-| `frama-c-script` | runs `$(frama-c -print-lib-path)/analysis-scripts/*.py` with the host's `python3`, and reads `$(frama-c -print-share-path)`, which prints two lines in the bundle | `lib/patch_script.py` makes both substitutions keep their first line. The helpers (`usr/lib/frama-c/lib`) are shipped. `AppRun` puts the bundled Python, which includes PyYAML, first on `PATH` and clears the host's `PYTHON*` variables. |
+| `frama-c-script` | runs `$(frama-c -print-lib-path)/analysis-scripts/*.py` with the host's `python3`, and reads `$(frama-c -print-share-path)`, which prints two lines in the bundle; `list-functions` loads a module with `-load-module` | `lib/patch_script.py` makes both substitutions keep their first line, and `list-functions` pass `-list-functions` to a frama-c with that module linked in (`lib/patch_sources.py` makes it run only then). The helpers (`usr/lib/frama-c/lib`) are shipped. `AppRun` puts the bundled Python, which includes PyYAML, first on `PATH` and clears the host's `PYTHON*` variables. |
 | Why3 data and CLI | `Config.datadir` and `Config.libdir` point into the opam tree, and the `why3` CLI dynlinks its subcommands (`.cmxs`) from that libdir | `AppRun` sets `WHY3DATA` and `WHY3LIB`. `usr/lib/why3` holds Why3's helper programs (`why3server`, `why3cpulimit`; Why3 runs every prover through `why3server`) and the CLI's `commands/` and `plugins/`. |
 | Prover config | `why3.conf` stores absolute prover paths | At build time, `why3 config detect` is run against the bundled provers and saved as a template. `AppRun` fills it in for the current location of the bundle and points `WHY3CONFIG` at it, unless the caller already set `WHY3CONFIG` (or `FCAI_WHY3CONFIG`). |
 | C preprocessor | Frama-C runs `gcc -E` from `PATH` | The `gcc` driver (as `gcc-real`) and `cc1` are bundled with the same relative layout, so gcc finds `cc1` relative to itself. `gcc` is a wrapper that always adds `-nostdinc`, so the host's `/usr/include` is never searched. |
@@ -86,7 +87,8 @@ The installed commands are `frama-c`, `frama-c-script`, `ivette`, `why3`, `z3`, 
 build.sh                  the build (steps are stamped and resumable)
 build-in-container.sh     runs build.sh in ubuntu:20.04 via docker/podman
 lib/gen_static_exe.py     generates the statically linked frama-c stanza
-lib/patch_script.py       makes frama-c-script use the first -print-share/lib-path line
+lib/patch_script.py       makes frama-c-script use the first -print-share/lib-path line (and -list-functions)
+lib/patch_sources.py      small checked patches to the Frama-C sources (list-functions guard)
 lib/gen_completion.py     generates the bash completion from frama-c's help (template: lib/completion.bash.in)
 lib/asar_prune.py         removes source maps from Ivette's app.asar and verifies the rest
 lib/bundle_libs.py        copies shared libraries, sets relative RPATHs on executables, checks alignment

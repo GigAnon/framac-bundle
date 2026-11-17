@@ -29,6 +29,14 @@ for ((i=0;i<${#args[@]};i++)); do a=${args[$i]}
     -kernel-warn-key|-kernel-msg-key|-wp-msg-key) [ "${args[$((i+1))]:-}" = help ] && { echo "[kernel] Existing categories and their status:"; printf '    %s\n' annot-error annot:missing-spec parser:decimal-float shell; exit 0; }; i=$((i+1));;
     -*-h) h=${a#-}; h=${h%-h}; if [ -f "$share/../mock-help/$h.txt" ]; then cat "$share/../mock-help/$h.txt"; else printf -- '-%s               mock option of %s\n' "$h" "$h"; fi; exit 0;;
     -wp-detect) grep -A3 partial_prover "$WHY3CONFIG" | sed -n 's/name = "\(.*\)"/[wp] Prover \1/p'; exit 0;;
+    # like the bundle's real frama-c: nothing can be loaded dynamically
+    -load-module) m=${args[$((i+1))]:-}; m=${m%%,*}
+        echo "[kernel] User Error: Failed to load plug-in \"$m\""
+        echo "  Exception: The plugin \"$m\" can't be found in the search paths \"$share/../../lib/frama-c/plugins\"."
+        echo "[kernel] Frama-C aborted: invalid user input."; exit 1;;
+    # the linked-in frama-c.analysis-scripts, guarded by lib/patch_sources.py
+    -list-functions) mode=listfun;;
+    -kernel-verbose) i=$((i+1));;
     -wp) mode=wp;; -eva) mode=eva;;
     -wp-prover) i=$((i+1)); prover=${args[$i]};;
     -wp-timeout|-wp-par) i=$((i+1));;
@@ -53,6 +61,11 @@ if [ "$mode" = wp ]; then
     if grep -q wrong "${files[0]}"; then echo "[wp] Proved goals:    1 / 2"; else echo "[wp] Proved goals:   12 / 12"; fi
     echo "  $l 1.0: 5 (10ms)"
   done
+fi
+if [ "$mode" = listfun ]; then
+  for f in "${files[@]}"; do
+    grep -nE '^[a-z_][a-z0-9_ *]* ([a-z_][a-z0-9_]*)\(' "$f" | sed -E 's/^([0-9]+):[^(]* \**([a-z_][a-z0-9_]*)\(.*/\2: defined at '"$(basename "$f")"':\1 (3 statements);/'
+  done | sort; exit 0
 fi
 [ "$mode" = eva ] && grep -q '/ d' "${files[-1]}" && echo "[eva:alarm] eva.c:21: Warning: division by zero. assert d != 0;"
 exit 0

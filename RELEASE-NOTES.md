@@ -71,6 +71,7 @@ The shipped `run-tests.sh` checks:
 
 - **No spaces in the install path.** Frama-C does not quote its own libc include path when it calls the preprocessor, so a bundle *directory* whose path contains a space cannot preprocess C files. The AppImage itself is unaffected, because its mount point never contains spaces. `install.sh` warns about this.
 - **`-wp-detect` does not exist in Frama-C 33.** Use `why3 config list-provers` to see the configured provers.
+- **`frama-c-script list-functions` fails** in 1.0 and 1.1 ("Failed to load plug-in instantiate"): it loads a module dynamically, which the bundle's frama-c cannot do. Fixed in 33.0-1.2 and 34.0-beta-1.0. The other `frama-c-script` commands are not affected.
 - **Ivette is large** (~450 MB unpacked), most of it the Electron runtime.
 
 ## Licences

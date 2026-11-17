@@ -16,13 +16,15 @@
 #
 # Re-running is incremental: completed steps are skipped (see STAMPS).
 # Useful overrides (environment):
-#   FRAMAC_VERSION=33.0   BUNDLE_REV=1.0 (bundle version = FRAMAC_VERSION-BUNDLE_REV)
-#   OCAML_VERSION=4.14.2
+#   FRAMAC_VERSION=33.0 | 34.0~beta   (each has its own defaults for
+#     OCAML_VERSION, BUNDLE_REV, ALTERGO_PKG and EXTRA_PLUGINS, see below)
+#   BUNDLE_REV  (bundle version = FRAMAC_VERSION with '~' -> '-', then -BUNDLE_REV)
+#   OCAML_VERSION
 #   OCAML_FLAMBDA=0 (default; 1 = flambda, see CLAUDE.md: -O3 failed)   OCAML_O3
 #   STRIP=1 (strip the executables built here)   IVETTE_PRUNE_MAPS=1
-#   ALTERGO_PKG=alt-ergo.2.6.2 (or alt-ergo-free.2.4.3, or "" to omit)
+#   ALTERGO_PKG=alt-ergo.<ver> (or alt-ergo-free.2.4.3, or "" to omit)
 #   WITH_CVC5=1   WITH_IVETTE=1   IVETTE_PREBUILT=/path/to/ivette.AppImage
-#   NODE_VERSION=22.22.2   EXTRA_PLUGINS="frama-c-metacsl.0.11"
+#   NODE_VERSION=22.22.2   EXTRA_PLUGINS="frama-c-metacsl.0.11" (see below)
 #   EXCLUDE_PLUGINS=e-acsl,e_acsl
 #   BUILD_ROOT=...  OUT_DIR=...  JOBS=N  SKIP_SELFTEST=1  FORCE=step1,step2
 #   KEEP_LOGS=1 (old logs are deleted at the start of each build otherwise)
@@ -34,11 +36,31 @@ SRC_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 
 # ----------------------------------------------------------------- settings
 : "${FRAMAC_VERSION:=33.0}"
+# Per Frama-C version: the OCaml it needs, the bundle revision, Alt-Ergo, and
+# the third-party plug-ins built for it.  Each stays overridable.
+#   33.0       OCaml 4.14.2; MetAcsl 0.11 from opam
+#   34.0~beta  OCaml >= 5.2 required (5.5.0 is what Frama-C 34 itself uses:
+#              INSTALL.md, dev/docker); MetAcsl 0.12-beta is not in opam
+#              (0.11 says frama-c < 34.0~), so it comes from its git tag,
+#              pinned by sha256 (see EXTRA_PLUGINS)
+case "$FRAMAC_VERSION" in
+    33.0)
+        _ocaml=4.14.2 _rev=1.2 _altergo=alt-ergo.2.6.2
+        _extra="frama-c-metacsl.0.11" ;;
+    34.0~beta)
+        _ocaml=5.5.0 _rev=1.0 _altergo=alt-ergo.2.6.4
+        _extra="frama-c-metacsl.0.12~beta=https://git.frama-c.com/pub/meta/-/archive/0.12-beta/meta-0.12-beta.tar.gz#sha256=7e8d99800d8c827057bd97cacd3ac9e6fcae63e1f96646eae9f5e0ea7fed1f13" ;;
+    *)
+        for v in OCAML_VERSION BUNDLE_REV ALTERGO_PKG EXTRA_PLUGINS; do
+            [ -n "${!v+x}" ] || { echo "FRAMAC_VERSION=$FRAMAC_VERSION has no defaults here: set $v (and OCAML_VERSION, BUNDLE_REV, ALTERGO_PKG, EXTRA_PLUGINS)" >&2; exit 2; }
+        done ;;
+esac
 # revision of this bundle (scripts, components); the published version is
-# <Frama-C version>-<bundle revision>, e.g. 33.0-1.0
-: "${BUNDLE_REV:=1.1}"
-BUNDLE_VERSION="$FRAMAC_VERSION-$BUNDLE_REV"
-: "${OCAML_VERSION:=4.14.2}"
+# <Frama-C version>-<bundle revision>, e.g. 33.0-1.1 or 34.0-beta-1.0 ('~' is
+# awkward in file names)
+: "${BUNDLE_REV:=$_rev}"
+BUNDLE_VERSION="${FRAMAC_VERSION//\~/-}-$BUNDLE_REV"
+: "${OCAML_VERSION:=$_ocaml}"
 : "${OCAML_FLAMBDA:=0}"
 # with flambda, every OCaml compilation after the compiler itself (opam
 # dependencies, Frama-C, why3) gets -O3, through OCAMLPARAM.  Not the default:
@@ -55,7 +77,7 @@ BUNDLE_VERSION="$FRAMAC_VERSION-$BUNDLE_REV"
 : "${OPAM_VERSION:=2.3.0}"
 : "${OPAM_SHA256:=324e78e3f33efeba279aacf9f9610cfec7b2df7d7e0e1640f75f09de85f96cc9}"
 : "${OPAM_REPO:=https://opam.ocaml.org}"
-: "${ALTERGO_PKG=alt-ergo.2.6.2}"
+: "${ALTERGO_PKG=${_altergo:-}}"
 : "${WITH_CVC5:=1}"
 # Ivette (Electron GUI; the GTK GUI is gone since Frama-C 33): built from the
 # ivette/ directory of the Frama-C sources with Node.js, or taken from
@@ -71,10 +93,11 @@ BUNDLE_VERSION="$FRAMAC_VERSION-$BUNDLE_REV"
 : "${PYYAML_GIT:=https://github.com/yaml/pyyaml}"
 : "${PYYAML_TAG:=6.0.3}"
 : "${PYYAML_COMMIT:=49790e73684bebad1df05ef8d828fa12f685bffb}"
-# third-party Frama-C plug-ins from opam, built inside the Frama-C source tree
-# (so they are linked statically like the others); space-separated opam
-# package.version list
-: "${EXTRA_PLUGINS=frama-c-metacsl.0.11}"
+# third-party Frama-C plug-ins, built inside the Frama-C source tree (so they
+# are linked statically like the others); space-separated list of
+#   <opam package>.<version>                       taken with 'opam source'
+#   <package>.<version>=<url>#sha256=<hex>         a source archive, pinned
+: "${EXTRA_PLUGINS=${_extra:-}}"
 # optional opam dependencies of Frama-C (its opam "depopts"), installed
 # before it is built so that it compiles the parts that use them:
 #   zmq    the Server plug-in's ZeroMQ backend (-server-zmq)
@@ -174,7 +197,7 @@ fetch() { # URL SHA256 DEST
 
 oexec() { opam exec --switch="$SWITCH" -- "$@"; }
 
-say "Frama-C $FRAMAC_VERSION bundle build   BUILD_ROOT=$BUILD_ROOT   OUT_DIR=$OUT_DIR   log=$LOG"
+say "Frama-C $FRAMAC_VERSION bundle $BUNDLE_VERSION build   BUILD_ROOT=$BUILD_ROOT   OUT_DIR=$OUT_DIR   log=$LOG"
 
 # ------------------------------------------------------------------ 0. system
 if step system-packages; then
@@ -208,6 +231,17 @@ if [ ! -x "$BUILD_ROOT/bin/opam" ]; then
     install -m 755 "$DL/opam-$OPAM_VERSION" "$BUILD_ROOT/bin/opam"
 fi
 
+# The Frama-C version: its opam dependencies, sources, build and why3 differ.
+# Volumes from before this file existed only ever built 33.0.  Checked before
+# the compiler configuration, which removes the opam-deps stamp itself.
+if [ -f "$STAMPS/opam-deps" ] || [ -f "$STAMPS/framac-source" ]; then
+    old_fc=$(cat "$STAMPS/framac-conf" 2>/dev/null || echo 33.0)
+    if [ "$old_fc" != "$FRAMAC_VERSION" ]; then
+        warn "Frama-C version changed ($old_fc -> $FRAMAC_VERSION): redoing its opam dependencies, sources, build and why3 (better: one build volume per version)"
+        rm -f "$STAMPS"/opam-deps "$STAMPS"/opam-optdeps "$STAMPS"/optdeps-conf "$STAMPS"/framac-source \
+              "$STAMPS"/framac-build "$STAMPS"/framac-static "$STAMPS"/why3-reloc
+    fi
+fi
 # The compiler configuration is part of every OCaml build product: when it
 # changes (flambda, -O3, OCaml version), the switch, the opam dependencies,
 # Frama-C and why3 are rebuilt.  Volumes from before this file existed were
@@ -264,6 +298,7 @@ if step opam-deps; then
     if [ -n "$ALTERGO_PKG" ]; then opam install --switch="$SWITCH" -y "$ALTERGO_PKG"; fi
     opam install --switch="$SWITCH" -y --deps-only "frama-c.$FRAMAC_VERSION"
     oexec why3 --version
+    echo "$FRAMAC_VERSION" > "$STAMPS/framac-conf"
     done_step opam-deps
 fi
 
@@ -305,22 +340,48 @@ if step framac-source; then
 fi
 
 # -------------------------- 2b. third-party plug-ins, vendored in the tree
-# Each one is a dune project of its own; dropped under src/plugins/ it becomes
-# part of the Frama-C dune workspace, builds against the in-tree kernel and
-# registers its dune-site plug-in like the bundled ones.
+# Each one is a dune project of its own; dropped into the plug-in directory it
+# becomes part of the Frama-C dune workspace, builds against the in-tree
+# kernel and registers its dune-site plug-in like the bundled ones.  That
+# directory is src/plugins/ up to 33.0, and the top-level plugins/ from 34.0.
+if [ -d "$FC_SRC/plugins" ]; then PLUGDIR="$FC_SRC/plugins"; else PLUGDIR="$FC_SRC/src/plugins"; fi
 EXTRA_NAMES=""
-for pkg in $EXTRA_PLUGINS; do
+for entry in $EXTRA_PLUGINS; do
+    pkg=${entry%%=*}                     # <package>.<version>
+    srcspec=""; [ "$entry" = "$pkg" ] || srcspec=${entry#*=}
     name=${pkg%%.*}
-    dst="$FC_SRC/src/plugins/fcai-extra-$name"
+    dst="$PLUGDIR/fcai-extra-$name"
     EXTRA_NAMES="$EXTRA_NAMES $name"
-    if [ ! -f "$dst/.fcai-$pkg" ]; then
-        say "vendor $pkg into the Frama-C tree"
+    # the marker holds the source spec ("" for opam: same as older volumes)
+    if [ ! -f "$dst/.fcai-$pkg" ] || [ "$(cat "$dst/.fcai-$pkg")" != "$srcspec" ]; then
+        say "vendor $pkg into the Frama-C tree (${PLUGDIR#"$FC_SRC"/})"
         rm -rf "$dst"
-        opam source --switch="$SWITCH" "$pkg" --dir "$dst"
-        touch "$dst/.fcai-$pkg"
+        if [ -z "$srcspec" ]; then
+            opam source --switch="$SWITCH" "$pkg" --dir "$dst"
+        else
+            url=${srcspec%%#*}; sum=${srcspec##*#sha256=}
+            [ "$sum" != "$srcspec" ] && [ ${#sum} = 64 ] || die "EXTRA_PLUGINS: $entry needs <url>#sha256=<64 hex digits>"
+            fetch "$url" "$sum" "$DL/vendor-$pkg.tar.gz"
+            mkdir -p "$dst"
+            tar -xzf "$DL/vendor-$pkg.tar.gz" -C "$dst" --strip-components=1
+            [ -f "$dst/dune-project" ] || die "vendored $pkg: no dune-project at the top of $url"
+        fi
+        printf '%s' "$srcspec" > "$dst/.fcai-$pkg"
         rm -f "$STAMPS/framac-build" "$STAMPS/framac-static"   # rebuild with it
     fi
 done
+if [ "${STOP_AFTER:-}" = vendor ]; then say "STOP_AFTER=vendor"; exit 0; fi
+
+# ------------------------------- 2c. source patches for the static frama-c
+# lib/patch_sources.py: frama-c.analysis-scripts (frama-c-script
+# list-functions) is guarded by -list-functions so that it can be linked in.
+# A patch applied now means Frama-C must be rebuilt (dune: only that module).
+say "source patches"
+pout=$(python3 "$SRC_DIR/lib/patch_sources.py" "$FC_SRC") || { echo "$pout"; die "source patch failed (lib/patch_sources.py)"; }
+echo "$pout" | tee "$LOGDIR/source-patches.txt"
+if echo "$pout" | grep -q '^patched: [1-9]'; then rm -f "$STAMPS/framac-build" "$STAMPS/framac-static"; fi
+# list-functions works in the bundle iff that library is linked (2c + 4)
+LISTFUN=0; [ -f "$FC_SRC/share/analysis-scripts/list_functions.ml" ] && LISTFUN=1
 
 # ----------------------- 3. regular build (discovers the plug-in libraries)
 if step framac-build; then
@@ -348,8 +409,14 @@ fi
 
 # ------------------------- 4. single executable with plug-ins linked in
 if step framac-static; then
+    EXTRA_LIBS=()
+    if [ $LISTFUN = 1 ]; then
+        grep -qs '^package "analysis-scripts"' "$FC_SRC/_build/install/default/lib/frama-c/META" \
+            || die "share/analysis-scripts exists, but the build installed no frama-c.analysis-scripts library"
+        EXTRA_LIBS+=(--extra-lib frama-c.analysis-scripts)
+    fi
     gen=$(cd "$FC_SRC" && oexec python3 "$SRC_DIR/lib/gen_static_exe.py" --src . \
-            --public-name frama-c-static --exclude "$EXCLUDE_PLUGINS")
+            --public-name frama-c-static --exclude "$EXCLUDE_PLUGINS" "${EXTRA_LIBS[@]}")
     STATIC_DIR=${gen% *}; STATIC_MAIN=${gen#* }
     (cd "$FC_SRC" && oexec dune build -j "$JOBS" --release --promote-install-files=false \
         "./$STATIC_DIR/$STATIC_MAIN.exe" @install)
@@ -419,7 +486,8 @@ cp -a "$STAGE/share/." "$APPDIR/usr/share/"
 # AND the baked one, so any "$(... -print-share-path)" keeps the first line only.
 [ -f "$STAGE/bin/frama-c-script" ] || die "frama-c-script was not installed in $STAGE/bin"
 cp "$STAGE/bin/frama-c-script" "$LOGDIR/frama-c-script.orig.txt"
-python3 "$SRC_DIR/lib/patch_script.py" "$STAGE/bin/frama-c-script" "$APPDIR/usr/bin/frama-c-script" \
+PS_ARGS=(); [ $LISTFUN = 1 ] && PS_ARGS=(--list-functions)
+python3 "$SRC_DIR/lib/patch_script.py" "$STAGE/bin/frama-c-script" "$APPDIR/usr/bin/frama-c-script" "${PS_ARGS[@]}" \
     | tee "$LOGDIR/frama-c-script-patch.txt"
 chmod 755 "$APPDIR/usr/bin/frama-c-script"
 # its helpers (analysis-scripts/*.py, make_machdep/) live in the dune-site
