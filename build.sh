@@ -309,8 +309,11 @@ KNOWN_OPTIONAL_DEPS="zmq apron"
 for d in $OPTIONAL_DEPS; do
     case " $KNOWN_OPTIONAL_DEPS " in *" $d "*) ;; *) die "OPTIONAL_DEPS: unknown '$d' (known: $KNOWN_OPTIONAL_DEPS)" ;; esac
 done
-if [ -f "$STAMPS/opam-deps" ] && [ "$(cat "$STAMPS/optdeps-conf" 2>/dev/null)" != "$OPTIONAL_DEPS" ]; then
-    warn "optional dependencies changed ('$(cat "$STAMPS/optdeps-conf" 2>/dev/null)' -> '$OPTIONAL_DEPS'): Frama-C will be rebuilt"
+# (|| true: a failing command inside $(...) would fire the ERR trap in the
+# subshell, whose message then became the value; seen on the first 34 build)
+old_optdeps=$(cat "$STAMPS/optdeps-conf" 2>/dev/null || true)
+if [ -f "$STAMPS/opam-deps" ] && [ "$old_optdeps" != "$OPTIONAL_DEPS" ]; then
+    warn "optional dependencies changed ('$old_optdeps' -> '$OPTIONAL_DEPS'): Frama-C will be rebuilt"
     rm -f "$STAMPS"/opam-optdeps "$STAMPS"/framac-build "$STAMPS"/framac-static
     rm -rf "$FC_SRC/_build"
 fi

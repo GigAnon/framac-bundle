@@ -21,8 +21,12 @@ sha256sum -c SHA256SUMS
 
 ## Tested
 
-To be filled in from the first real build and its test reports.
+| Where | Result |
+|---|---|
+| Build container (Ubuntu 20.04, glibc 2.31), self-test | 0 FAIL, 0 WARN. WP on the sample file: Z3 50/50, Alt-Ergo 50/50, CVC4/cvc5 44/50, all provers together 50/50. Eva with each Apron domain, the ZeroMQ server, `frama-c-script` (including `list-functions`), Why3, Ivette under Xvfb, relocation and bash completion all pass. |
+
+The minimum glibc on the target is 2.29 (Ivette 2.25), the same as the 33.0 bundles.
 
 ## Known limitations
 
-As in 33.0: no spaces in the install path, `-wp-detect` does not exist, Ivette is large. Alt-Ergo is under the OCamlPro non-commercial licence.
+`-wp-detect` does not exist, and Ivette is large. Unlike 33.0, an install path containing spaces works (Frama-C 34 quotes its libc include path). There is no separate Mthread plug-in any more; its domain is part of Eva (`-mthread`). Alt-Ergo is under the OCamlPro non-commercial licence.

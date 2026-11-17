@@ -372,7 +372,8 @@ cp -a "$R/stamps" "$X/stamps"; cp "$R/bin/opam" "$X/bin/opam"; rm -f "$X/stamps/
 (cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" STOP_AFTER=optdeps-conf bash "$REPO/build.sh") > "$X/out.txt" 2>&1 \
     || { echo "MOCK FAIL: build.sh STOP_AFTER=optdeps-conf failed ($X/out.txt)"; exit 1; }
 [ ! -e "$X/stamps/framac-build" ] && [ ! -e "$X/stamps/framac-static" ] && [ ! -e "$X/src/frama-c-33.0/_build" ] \
-    && [ -e "$X/stamps/opam-deps" ] && grep -q 'optional dependencies changed' "$X/out.txt" \
+    && [ -e "$X/stamps/opam-deps" ] && grep -q "optional dependencies changed ('' -> 'zmq apron')" "$X/out.txt" \
+    && ! grep -q 'ERROR: failed at line' "$X/out.txt" \
     || { echo "MOCK FAIL: optional-dependency change handling ($X/out.txt)"; exit 1; }
 rc=0; (cd "$W" && BUILD_ROOT="$X" OUT_DIR="$X/dist" OPTIONAL_DEPS="zmq bogus" STOP_AFTER=optdeps-conf bash "$REPO/build.sh") > "$X/out2.txt" 2>&1 || rc=$?
 [ $rc != 0 ] && grep -q "OPTIONAL_DEPS: unknown 'bogus'" "$X/out2.txt" \

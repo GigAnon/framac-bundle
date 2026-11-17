@@ -197,7 +197,7 @@ Do not "fix" these back. Each one was observed in a real log.
   - Same file and same line in 33.0 and 34.0~beta. Text output: `main: defined at <file>:<line> (<n> statements);`.
   - Test `<mode>-script-listfun`: `frama-c-script list-functions tests/eva.c` must print `main: defined at`. The mock frama-c fails `-load-module` the way the real one does.
   - Ships in 33.0-1.2 (`_rev=1.2`) and 34.0-beta-1.0. On the owner's 33 volume the patch applies once and dune recompiles only that module.
-- **Frama-C 34.0~beta "Selenium" (2026-11-17, from its sources and opam; no real build yet).**
+- **Frama-C 34.0~beta "Selenium" (2026-11-17).**
   - Tagged 2026-11-13. `frama-c.34.0~beta` is in opam-repository (tarball `frama-c-34.0-beta-Selenium.tar.gz`, sha256 `ab9e089c…`, checked).
     - **OCaml ≥ 5.2** ("New minimal OCaml version: 5.2", Changelog 2026-07-24). INSTALL.md and its own `dev/docker` use OCaml **5.5.0**, so the profile does too.
     - `why3 >= 1.8.2 & < 1.9.0`; dev pin `alt-ergo = 2.6.4` (the profile's `ALTERGO_PKG`). Depopts `apron`, `zmq` unchanged. The flambda conflicts of 33.0 are gone.
@@ -215,7 +215,25 @@ Do not "fix" these back. Each one was observed in a real log.
     - `bin/frama-c` (`dune exec --root=$(dirname $0)/.. --no-build -- frama-c`, used by `ivette/api.sh`);
     - Ivette: Electron ^40, `make api` / `make dist`;
     - the server `(select server_zmq.ml from (zmq -> …))` and `eva.apron`.
-  - **Not yet seen on a real build:** OCaml 5.5 on focal (gcc 9.4); the opam resolution; the Ivette build; the configurator's new checks (`python-3.10-available`, `gcc-is-genuine`, `has-c2x-option`); and WP/Eva results on OCaml 5.
+  - **First real build, 2026-11-17 (commit ed050b9, ubuntu:20.04), green on the first try; self-test 0 FAIL, 0 WARN.**
+    - OCaml 5.5.0, why3 1.8.2, alt-ergo 2.6.4, zmq 6.0.0 and apron v0.9.15 all build on focal (gcc 9.4). `GLIBC_REQUIRED=2.29` (Ivette 2.25), as with 33.0.
+    - MetAcsl 0.12-beta was vendored into `plugins/`. `list_functions.ml` was patched, and `frama-c.analysis-scripts` linked (`--extra-lib`).
+    - The static link has 35 plug-ins: `acsl-importer alias aorai api_generator callgraph constant_propagation dive eva eva.apron eva.server_api from impact inout instantiate loop-analysis markdown-report markdown-report.eva-info metacsl metrics nonterm obfuscator occurrence pdg pdg-types reduc region report rtegen scope security_slicing server slicing sparecode studia volatile wp`.
+      - There is no Mthread plug-in any more: `-eva-domains help` lists an `mthread` domain, "automatically enabled by the -mthread parameter".
+      - `-plugins` also shows "List-functions" (our `Self` from the patched module).
+    - `strip`: 28 files, 134.1 → 98.3 MB. asar: 604 `.map` removed, 242.1 → 178.0 MB.
+    - **WP** (`wp_ok.c -wp-rte`):
+      - **Z3 50/50** (49/50 on 33.0);
+      - CVC4/cvc5 44/50;
+      - Alt-Ergo 2.6.4 50/50;
+      - all provers together 50/50;
+      - negative 3/4.
+    - Eva and all 5 Apron domains find the alarm. ZeroMQ: `getConfig` → `"version":"34.0~beta"`. `list-functions` → `main: defined at …/eva.c:12-21 (23 statements);` (34 prints a line range).
+    - **`reloc-spaces` PASSes on 34:** a bundle directory with spaces now preprocesses, so Frama-C 34 quotes its libc `-I` path. 33.0 still WARNs.
+    - Completion: 1177 options. Ivette launches and runs the bundled frama-c (`-no-autoload-plugins -server-socket …`).
+    - **Cosmetic bug found:** on a fresh volume, `optdeps-conf` does not exist. `warn "...('$(cat "$STAMPS/optdeps-conf" 2>/dev/null)' ..."` then fired the ERR trap inside the `$(...)` subshell: its `die` printed `ERROR: failed at line 313 …` into the warning text and exited only the subshell, and the build went on. Fixed with `old_optdeps=$(cat … || true)`; the mock's optdeps scenario now requires `('' -> 'zmq apron')` and no `ERROR: failed` in its log.
+    - Rule: never put a command that can fail inside `$(...)` without `|| true`/`|| echo …` (set -E propagates the ERR trap into substitutions).
+  - **Not yet tested:** a run on the target (FUSE AppImage mode, `unshare` offline, RHEL 9.8), and Ivette with a real display on 34.
 - **Logs on success.** `dist/logs/` was only filled on failure; `export_logs` now also runs at the end of a green build.
 
 ## Design invariants
@@ -277,9 +295,8 @@ It then runs the real `build.sh` and `run-tests.sh` on the untarred AppImage, wi
 2. **Release build-20261009-1959, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`), the same as 1818. The delivery tar is 296.3 → 254.9 MB (−41 MB, −14%) from strip and the removed `.map` files. OCaml is plain 4.14.2, `STRIPPED=yes`. The WP counts are identical (Z3 49/50, CVC4/cvc5 44/50, Alt-Ergo 50/50, all 50/50, negative 3/4), and so are the Eva alarm, Ivette under Xvfb, strace and completion.
 3. **Release v33.0-1.0 (2026-10-09), published by the owner, run by the agent:** 110 PASS, 0 FAIL, 1 WARN (`reloc-spaces`). The tar is 254.9 MB, `--fcai-version` gives `33.0-1.0`, and `install.sh --dir/--bin` installs all 9 commands (`frama-c -version` and `why3 --version` work) without touching `$HOME`. One flaw: `BUNDLE_COMMIT=unknown` (fixed for the next build, see Versioning). Notes: `RELEASE-NOTES.md`.
 4. **33.0-1.1 (ZeroMQ + Apron)** was released on 2026-10-10 (v33.0-1.1). rc1: a good bundle with a broken test client (see "ZeroMQ and Apron").
-5. **Frama-C 34.0~beta → bundle 34.0-beta-1.0 (2026-11-17): mock green, real build pending.**
-   - Run: `FRAMAC_VERSION='34.0~beta' ./build-in-container.sh` (new volume `fcai-build-ubuntu-20.04-fc34.0-beta`, first run from scratch on OCaml 5.5.0).
-   - Expect first-build failures from OCaml 5 or the new layout; encode each in the mock.
+5. **Frama-C 34.0~beta → bundle 34.0-beta-1.0: first real build green (2026-11-17), self-test 0 FAIL / 0 WARN** (see the facts above).
+   - Next: the owner publishes a pre-release; the agent runs it (FUSE, offline, extracted mode); then RHEL 9.8 and Ivette on a real display.
    - Also next: 33.0-1.2 (`list-functions` fix only; the owner's 33 volume patches and recompiles one module).
 6. **Optional dependencies audit (2026-10-10):**
    - `frama-c.33.0` depopts: `apron`, `zmq` (now in `OPTIONAL_DEPS`).
